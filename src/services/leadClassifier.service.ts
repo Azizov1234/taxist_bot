@@ -1,11 +1,13 @@
-import { getActiveKeywordBucket, type KeywordBucket } from "./keyword.service.js";
+﻿import { getActiveKeywordBucket, type KeywordBucket } from "./keyword.service.js";
 import { detectRoute } from "../utils/route.js";
 import { hasSpamSignals, normalizeUzbekText } from "../utils/text.js";
 
+const WEAK_ROUTE_KEYWORDS = new Set(["ga", "dan"]);
+
 const ROUTE_HINT_PATTERNS: RegExp[] = [
-  /\b[\p{L}\d\-\s]{2,30}\s*(dan|den|дан)\s+[\p{L}\d\-\s]{2,30}\s*(ga|gacha|га|ка)\b/iu,
-  /\b[\p{L}\d\-\s]{2,30}\s*(ga|gacha|га|ка)\s*(ketish kerak|borish kerak|керак|кетиш)/iu,
-  /\b(joy bormi|жой борми|nechida ketadi|нечада кетади|ketish kerak|ketadigan)\b/iu
+  /\b[\p{L}\d\-\s]{2,30}\s*(dan|den|га|дан)\s+[\p{L}\d\-\s]{2,30}\s*(ga|gacha|га|ка)\b/iu,
+  /\b[\p{L}\d\-\s]{2,30}\s*(ga|gacha|га|ка)\s*(ketish kerak|borish kerak|ketaman|boraman|ketamiz|boramiz|ketadi|boradi|kerak|ketish)\b/iu,
+  /\b(joy bormi|нечада кетади|nechida ketadi|ketish kerak|ketadigan)\b/iu
 ];
 
 export interface LeadClassification {
@@ -30,12 +32,17 @@ function detectPatternMatches(text: string): string[] {
   return matches;
 }
 
-function detectKeywordMatches(normalizedText: string, bucket: KeywordBucket): string[] {
-  const all = [...bucket.latin, ...bucket.cyrillic, ...bucket.route, ...bucket.extra];
+function detectKeywordMatches(
+  normalizedText: string,
+  bucket: KeywordBucket
+): { core: string[]; route: string[]; all: string[] } {
+  const coreKeywords = [...bucket.latin, ...bucket.cyrillic, ...bucket.extra];
+  const routeKeywords = bucket.route.filter((keyword) => !WEAK_ROUTE_KEYWORDS.has(keyword));
+  const all = [...coreKeywords, ...routeKeywords];
   const hits: string[] = [];
 
   for (const keyword of all) {
-    if (keyword.length < 2) {
+    if (keyword.length < 3) {
       continue;
     }
 
@@ -44,7 +51,11 @@ function detectKeywordMatches(normalizedText: string, bucket: KeywordBucket): st
     }
   }
 
-  return hits;
+  const routeSet = new Set(routeKeywords);
+  const route = hits.filter((keyword) => routeSet.has(keyword));
+  const core = hits.filter((keyword) => !routeSet.has(keyword));
+
+  return { core, route, all: hits };
 }
 
 export async function classifyLead(rawText: string): Promise<LeadClassification> {
@@ -63,21 +74,22 @@ export async function classifyLead(rawText: string): Promise<LeadClassification>
   }
 
   const bucket = await getActiveKeywordBucket();
-  const matchedKeywords = detectKeywordMatches(normalizedText, bucket);
+  const keywordMatches = detectKeywordMatches(normalizedText, bucket);
   const matchedPatterns = detectPatternMatches(rawText);
   const route = detectRoute(rawText);
 
-  const score = matchedKeywords.length * 2 + matchedPatterns.length * 2 + (route ? 2 : 0);
-  const isLead = matchedKeywords.length > 0 || matchedPatterns.length > 0 || route !== null;
-  const isSpam = hasSpamSignals(normalizedText) && matchedKeywords.length === 0 && matchedPatterns.length === 0;
+  const score = keywordMatches.core.length * 2 + keywordMatches.route.length + matchedPatterns.length * 2 + (route ? 2 : 0);
+  const isLeadSignal = keywordMatches.core.length > 0 || matchedPatterns.length > 0;
+  const isSpam = hasSpamSignals(normalizedText) && keywordMatches.core.length === 0 && matchedPatterns.length === 0;
 
   return {
-    isLead: isLead && !isSpam,
+    isLead: isLeadSignal && !isSpam,
     isSpam,
     score,
     normalizedText,
-    matchedKeywords,
+    matchedKeywords: keywordMatches.all,
     matchedPatterns,
     route
   };
 }
+

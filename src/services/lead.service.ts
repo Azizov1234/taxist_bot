@@ -13,6 +13,20 @@ export interface ProcessMessageResult {
   reason?: string;
 }
 
+function isForwardedMessage(msg: NonNullable<Context["msg"]>): boolean {
+  return (
+    ("forward_origin" in msg && Boolean(msg.forward_origin)) ||
+    ("forward_from" in msg && Boolean(msg.forward_from)) ||
+    ("forward_from_chat" in msg && Boolean(msg.forward_from_chat)) ||
+    ("forward_sender_name" in msg && Boolean(msg.forward_sender_name)) ||
+    ("forward_date" in msg && typeof msg.forward_date === "number")
+  );
+}
+
+function isSenderChatMessage(msg: NonNullable<Context["msg"]>): boolean {
+  return "sender_chat" in msg && Boolean(msg.sender_chat);
+}
+
 function getMessageText(msg: Context["msg"]): string | null {
   if (!msg) {
     return null;
@@ -140,6 +154,18 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   if (ctx.chat.id !== env.PASSENGER_GROUP_ID) {
     return { processed: false, reason: "Message from disallowed chat" };
+  }
+
+  if (ctx.from.is_bot) {
+    return { processed: false, reason: "Message from bot user" };
+  }
+
+  if (isForwardedMessage(msg)) {
+    return { processed: false, reason: "Forwarded message ignored" };
+  }
+
+  if (isSenderChatMessage(msg)) {
+    return { processed: false, reason: "Sender chat/anonymous message ignored" };
   }
 
   const sourceMessageId = msg.message_id;

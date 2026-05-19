@@ -1,4 +1,4 @@
-export const DEFAULT_KEYWORDS = {
+﻿export const DEFAULT_KEYWORDS = {
   latin: [
     "taxi",
     "taksi",
@@ -38,18 +38,14 @@ export const DEFAULT_KEYWORDS = {
     "йуловчи",
     "попутчик",
     "жой борми",
-    "нечада кетади",
+    "нечида кетади",
     "манзилга боришим керак",
     "шу ерга боришим керак"
   ],
   route: [
-    "dan",
-    "ga",
     "tomon",
     "yo'nalish",
     "йўналиш",
-    "дан",
-    "га",
     "томон"
   ],
   extra: [
@@ -57,6 +53,11 @@ export const DEFAULT_KEYWORDS = {
     "qayerdan",
     "ketadigan",
     "ketadi",
+    "ketaman",
+    "ketamiz",
+    "boraman",
+    "boramiz",
+    "boradi",
     "bo'sh joy",
     "orqa joy"
   ]

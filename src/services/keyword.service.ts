@@ -1,4 +1,4 @@
-import { KeywordType, type Keyword } from "@prisma/client";
+﻿import { KeywordType, type Keyword } from "@prisma/client";
 import { prisma } from "../prisma/client.js";
 import { DEFAULT_KEYWORDS } from "../config/defaultKeywords.js";
 import { normalizeUzbekText } from "../utils/text.js";
@@ -11,6 +11,8 @@ export interface KeywordBucket {
 }
 
 const KEYWORD_CACHE_TTL_MS = 60_000;
+const WEAK_ROUTE_WORDS = ["ga", "dan", "га", "дан"];
+
 let keywordBucketCache: { expiresAt: number; value: KeywordBucket } | null = null;
 
 function invalidateKeywordCache(): void {
@@ -20,11 +22,11 @@ function invalidateKeywordCache(): void {
 export function detectKeywordType(word: string): KeywordType {
   const normalized = normalizeUzbekText(word);
 
-  if (/[а-яёқғҳў]/iu.test(word)) {
+  if (/\p{Script=Cyrillic}/u.test(word)) {
     return KeywordType.CYRILLIC;
   }
 
-  if (/(\bga\b|\bdan\b|\bга\b|\bдан\b|yo'nalish|йўналиш)/iu.test(normalized)) {
+  if (/(^|\s)(yo'nalish|yonalish|yunalish|tomon|йўналиш|йуналиш|томон)(\s|$)/iu.test(normalized)) {
     return KeywordType.ROUTE;
   }
 
@@ -33,6 +35,21 @@ export function detectKeywordType(word: string): KeywordType {
   }
 
   return KeywordType.LATIN;
+}
+
+async function deactivateWeakRouteWords(): Promise<void> {
+  const words = WEAK_ROUTE_WORDS.map((word) => normalizeUzbekText(word));
+
+  await prisma.keyword.updateMany({
+    where: {
+      word: { in: words },
+      type: KeywordType.ROUTE,
+      isActive: true
+    },
+    data: {
+      isActive: false
+    }
+  });
 }
 
 export async function seedDefaultKeywords(): Promise<void> {
@@ -52,11 +69,13 @@ export async function seedDefaultKeywords(): Promise<void> {
         isActive: true
       },
       update: {
-        type: entry.type
+        type: entry.type,
+        isActive: true
       }
     });
   }
 
+  await deactivateWeakRouteWords();
   invalidateKeywordCache();
 }
 
@@ -139,3 +158,4 @@ export async function removeKeyword(rawWord: string): Promise<Keyword | null> {
   invalidateKeywordCache();
   return result;
 }
+
