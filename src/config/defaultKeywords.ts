@@ -1,0 +1,79 @@
+export const DEFAULT_KEYWORDS = {
+  latin: [
+    "taxi",
+    "taksi",
+    "taksi kerak",
+    "taxi kerak",
+    "mashina kerak",
+    "moshina kerak",
+    "ketish kerak",
+    "borish kerak",
+    "ob ketadigan",
+    "olib ketadigan",
+    "yulovchi",
+    "yo'lovchi",
+    "yolovchi",
+    "poputchik",
+    "joy bormi",
+    "nechida ketadi",
+    "manzilga borishim kerak",
+    "shu yerga borishim kerak",
+    "toshkentga ketish",
+    "samarqandga ketish",
+    "farg'onaga ketish",
+    "andijonga ketish",
+    "namanganga ketish",
+    "buxoroga ketish",
+    "qarshiga ketish"
+  ],
+  cyrillic: [
+    "такси",
+    "такси керак",
+    "машина керак",
+    "мошина керак",
+    "кетиш керак",
+    "бориш керак",
+    "олиб кетадиган",
+    "йўловчи",
+    "йуловчи",
+    "попутчик",
+    "жой борми",
+    "нечада кетади",
+    "манзилга боришим керак",
+    "шу ерга боришим керак"
+  ],
+  route: [
+    "dan",
+    "ga",
+    "tomon",
+    "yo'nalish",
+    "йўналиш",
+    "дан",
+    "га",
+    "томон"
+  ],
+  extra: [
+    "qayerga",
+    "qayerdan",
+    "ketadigan",
+    "ketadi",
+    "bo'sh joy",
+    "orqa joy"
+  ]
+} as const;
+
+export const DEFAULT_SPAM_KEYWORDS = [
+  "reklama",
+  "aksiya",
+  "chegirma",
+  "sotiladi",
+  "obuna",
+  "подписка",
+  "продам",
+  "скидка",
+  "http://",
+  "https://",
+  "t.me/",
+  "instagram.com",
+  "youtube.com"
+] as const;

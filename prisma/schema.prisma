@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  NEW
+  FORWARDED
+  IGNORED
+  DUPLICATE
+}
+
+enum KeywordType {
+  LATIN
+  CYRILLIC
+  ROUTE
+  EXTRA
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+model Lead {
+  id                 Int        @id @default(autoincrement())
+  sourceChatId       String
+  sourceMessageId    Int
+  userId             String
+  fullName           String
+  username           String?
+  phone              String?
+  originalText       String
+  normalizedText     String
+  detectedRoute      String?
+  status             LeadStatus @default(NEW)
+  forwardedMessageId Int?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@unique([sourceChatId, sourceMessageId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Keyword {
+  id        Int         @id @default(autoincrement())
+  word      String      @unique
+  type      KeywordType
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model BotLog {
+  id        Int      @id @default(autoincrement())
+  level     LogLevel
+  message   String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([level, createdAt])
+}
