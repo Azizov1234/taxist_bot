@@ -84,6 +84,7 @@ Passenger request means:
 - person needs a ride
 - person asks who can take them
 - person writes route/location/time/phone
+- person asks fare for a concrete route (example: "Gulistondan Bekobodga qancha?")
 - person says “taxi kerak”, “taksi kerak”, “mashina kerak”, “borish kerak”, “ketish kerak”
 - Uzbek Cyrillic, Latin, Russian and slang should be understood
 
@@ -91,15 +92,17 @@ Not passenger request:
 - driver advertising himself
 - driver says he has empty seats
 - driver says he is taking passengers (e.g. "yo'lovchi olamiz", "joy bor", "mashina bor", "olib ketaman")
+- driver calls clients to his own car (e.g. "ketadiganlar bo'lsa olib ketaman", "odam olaman")
 - driver replies to others like "kuting", "aloqaga chiqadi", "sizga taksilarim"
 - taxi service advertisement
 - random chat
 - spam
-- price discussion only
+- price discussion only without route/taxi intent
 - links/reklama
 
 Rules:
 - If passenger needs taxi, return true.
+- Route + fare question usually means passenger request.
 - If driver is offering taxi, return false.
 - If unsure, return false.
 - confidence must be between 0 and 1.

@@ -16,6 +16,36 @@ export interface ProcessMessageResult {
 }
 
 const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
+const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  { id: "olib_ketaman", pattern: /\b(?:olib|ob)\s*ket(?:aman|amiz)\b/iu },
+  { id: "odam_olaman", pattern: /\bodam\s*(?:olaman|olamiz)\b/iu },
+  { id: "yolovchi_olaman", pattern: /\byo'?lovchi\s*(?:olaman|olamiz)\b/iu },
+  { id: "mijoz_olaman", pattern: /\bmijoz\s*(?:olaman|olamiz)\b/iu },
+  { id: "joy_bor", pattern: /\b(?:bo'?sh|bosh)?\s*joy(?:lar)?\s*bor\b/iu },
+  { id: "kishi_bor", pattern: /\b\d+\s*(?:ta|kishi)\s*(?:joy\s*)?bor\b/iu },
+  { id: "mashina_bor", pattern: /\b(?:mashina|moshina|avto)\s*bor\b/iu },
+  { id: "ketadiganlar_bolsa", pattern: /\bketadiganlar?\s*bo'?lsa\b/iu },
+  { id: "aloqaga_chiqadi", pattern: /\baloqaga\s*chiqadi\b/iu },
+  { id: "biroz_kuting", pattern: /\bbiroz\s*kuting\b/iu },
+  { id: "kuting", pattern: /\bkuting\b/iu },
+  { id: "ru_passenger_take", pattern: /\b(?:пассажир|мижоз|й[ўу]ловчи)\s*олам(?:ан|из)\b/iu },
+  { id: "ru_seat_available", pattern: /\b(?:б[ўу]ш\s*жой|жой)\s*бор\b/iu }
+];
+const PRICE_QUERY_KEYWORDS_NORMALIZED = [
+  "qancha",
+  "qanchaga",
+  "qancha boladi",
+  "qancha buladi",
+  "qancha bulayabdi",
+  "necha pul",
+  "narx",
+  "narxi",
+  "сколько",
+  "цена",
+  "стоимость",
+  "скок",
+  "skolko"
+].map((keyword) => normalizeText(keyword));
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -32,6 +62,14 @@ function containsKeyword(normalizedText: string, normalizedKeyword: string): boo
 
 function detectDriverAdHits(normalizedText: string): string[] {
   return DRIVER_AD_KEYWORDS_NORMALIZED.filter((keyword) => keyword.length > 0 && containsKeyword(normalizedText, keyword));
+}
+
+function detectPriceQueryHits(normalizedText: string): string[] {
+  return PRICE_QUERY_KEYWORDS_NORMALIZED.filter((keyword) => keyword.length > 0 && containsKeyword(normalizedText, keyword));
+}
+
+function detectDriverAdPatternHits(text: string): string[] {
+  return DRIVER_AD_REGEX_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
 }
 
 function isForwardedMessage(msg: NonNullable<Context["msg"]>): boolean {
@@ -177,10 +215,6 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     return { processed: false, reason: "Message from bot user" };
   }
 
-  if (isForwardedMessage(msg)) {
-    return { processed: false, reason: "Forwarded message ignored" };
-  }
-
   const sourceMessageId = msg.message_id;
   const sourceChatId = String(ctx.chat.id);
   const userId =
@@ -214,25 +248,57 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
   }
 
   const originalText = stripExtraPunctuation(text);
+  const normalizedText = normalizeText(originalText);
+  const forwarded = isForwardedMessage(msg);
+  const earlyDriverAdHits = detectDriverAdHits(normalizedText);
+  const earlyDriverAdPatternHits = detectDriverAdPatternHits(originalText);
+  const isDriverAdByHeuristic = earlyDriverAdHits.length > 0 || earlyDriverAdPatternHits.length > 0;
+
+  if (forwarded) {
+    if (isDriverAdByHeuristic) {
+      await writeInfo("Forwarded driver advertisement blocked", {
+        sourceMessageId,
+        text: shorten(originalText, 350),
+        driverAdHits: earlyDriverAdHits,
+        driverAdPatternHits: earlyDriverAdPatternHits
+      });
+
+      await deletePassengerMessage(ctx, sourceMessageId, "forwarded_driver_ad_message");
+
+      return {
+        processed: false,
+        reason: "Forwarded driver advertisement deleted"
+      };
+    }
+
+    return { processed: false, reason: "Forwarded message ignored" };
+  }
+
   const classification = await classifyMessage(originalText);
   const keywordResult = keywordClassify(originalText);
   const driverAdHits = detectDriverAdHits(classification.normalizedText);
-  const isDriverAdMessage = driverAdHits.length > 0;
+  const driverAdPatternHits = detectDriverAdPatternHits(originalText);
+  const priceQueryHits = detectPriceQueryHits(classification.normalizedText);
+  const isDriverAdMessage = driverAdHits.length > 0 || driverAdPatternHits.length > 0;
   const phone = extractPhone(originalText);
   const detectedRoute = detectRoute(originalText);
+  const isRouteFareInquiry = Boolean(detectedRoute) && priceQueryHits.length > 0;
   const hasHardPassengerSignal = keywordResult.score >= 3 || Boolean(phone) || Boolean(detectedRoute);
 
   const shouldSendByAI = classification.is_passenger_request && classification.confidence >= env.MIN_CONFIDENCE;
   const shouldSendByKeywordRescue = !shouldSendByAI && keywordResult.is_passenger_request && keywordResult.score >= 3;
-  const shouldSend = (shouldSendByAI || shouldSendByKeywordRescue) && !isDriverAdMessage && hasHardPassengerSignal;
+  const shouldSendByRouteFareInquiry = !shouldSendByAI && !shouldSendByKeywordRescue && isRouteFareInquiry;
+  const shouldSend = (shouldSendByAI || shouldSendByKeywordRescue || shouldSendByRouteFareInquiry) && !isDriverAdMessage && hasHardPassengerSignal;
   const decisionSource = isDriverAdMessage
     ? "blocked_driver_ad"
     : !hasHardPassengerSignal
       ? "blocked_no_passenger_signal"
     : shouldSendByAI
       ? classification.provider
-      : shouldSendByKeywordRescue
+    : shouldSendByKeywordRescue
         ? "keyword_rescue"
+      : shouldSendByRouteFareInquiry
+        ? "route_fare_inquiry_rescue"
         : "skip";
 
   await writeInfo("Message classification", {
@@ -244,6 +310,8 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     keywordScore: keywordResult.score,
     keywordReason: keywordResult.reason,
     driverAdHits,
+    driverAdPatternHits,
+    priceQueryHits,
     hasHardPassengerSignal,
     decisionSource,
     action: shouldSend ? "sent" : "skipped",
