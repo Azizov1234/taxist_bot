@@ -1,4 +1,4 @@
-# Taxi Lead Bot (Node.js + TypeScript + grammY + Prisma)
+﻿# Taxi Lead Bot (Node.js + TypeScript + grammY + Prisma)
 
 Production-ready Telegram bot: yo'lovchilar guruhidagi taxi/yolovchi so'rovlarini aniqlaydi va haydovchilar chatiga yuboradi.
 
@@ -21,12 +21,19 @@ Production-ready Telegram bot: yo'lovchilar guruhidagi taxi/yolovchi so'rovlarin
 `.env` ochib quyidagini to'ldiring:
 
 ```env
-BOT_TOKEN=
-PASSENGER_GROUP_ID=-100...
-DRIVER_GROUP_OR_CHANNEL_ID=-100...
+TELEGRAM_BOT_TOKEN=
+PASSENGERS_CHAT_ID=-100...
+DRIVERS_CHAT_ID=-100...
 ADMIN_TELEGRAM_ID=
 LOG_CHANNEL_ID=
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/taxi_bot?schema=public"
+
+GROQ_API_KEY=
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
+
+MIN_CONFIDENCE=0.70
+AI_COOLDOWN_MINUTES=10
 ```
 
 `LOG_CHANNEL_ID` ixtiyoriy.
@@ -116,9 +123,11 @@ pm2 startup
 Faqat `ADMIN_TELEGRAM_ID` foydalanuvchi bu buyruqlarni ishlata oladi.
 
 ## Lead aniqlash logikasi
-- Faqat `PASSENGER_GROUP_ID` ichidagi xabarlar analiz qilinadi.
-- Matn normalize qilinadi (`o'`, `o‘`, `oʻ` -> `o`; `g'`, `g‘`, `gʻ` -> `g`).
-- Latin/kiril keywordlar bo'yicha tekshiradi.
+- Faqat `PASSENGERS_CHAT_ID` ichidagi xabarlar analiz qilinadi.
+- Matn normalize qilinadi (`o'`, `oвЂ`, `oК»` -> `o`; `g'`, `gвЂ`, `gК»` -> `g`).
+- AI provider ketma-ketligi: `Groq -> Gemini -> OpenRouter -> keyword fallback`.
+- `429`, timeout yoki `5xx` xatoda provider avtomatik cooldown holatiga o'tadi va keyingi provider ishlaydi.
+- Hamma provider fail bo'lsa keyword fallback ishlaydi.
 - Pattern asosida ham aniqlaydi (`...dan ...ga`, `...ga ketish kerak`, `joy bormi` va boshqalar).
 - Telefon raqamlarni ajratadi va formatlaydi (`+998 90 123 45 67`).
 - Route topishga harakat qiladi.
@@ -130,3 +139,4 @@ Bot foydalanuvchining yashirin telefon raqamini Telegram'dan ola olmaydi. Faqat 
 
 ## Eslatma
 Docker bu loyihada majburiy emas va qo'shilmagan.
+

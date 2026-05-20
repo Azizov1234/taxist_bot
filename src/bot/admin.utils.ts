@@ -1,11 +1,20 @@
-import type { Context } from "grammy";
+﻿import type { Context } from "grammy";
 import { env } from "../config/env.js";
 
 export function isAdmin(ctx: Context): boolean {
+  if (env.ADMIN_TELEGRAM_ID === undefined) {
+    return false;
+  }
+
   return ctx.from?.id === env.ADMIN_TELEGRAM_ID;
 }
 
 export async function requireAdmin(ctx: Context): Promise<boolean> {
+  if (env.ADMIN_TELEGRAM_ID === undefined) {
+    await ctx.reply("ADMIN_TELEGRAM_ID sozlanmagan.");
+    return false;
+  }
+
   if (!isAdmin(ctx)) {
     await ctx.reply("Bu buyruq faqat admin uchun.");
     return false;
@@ -28,3 +37,4 @@ export function getCommandArgument(ctx: Context): string {
 
   return parts.slice(1).join(" ").trim();
 }
+

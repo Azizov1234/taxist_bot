@@ -1,4 +1,4 @@
-import { Bot, type Context } from "grammy";
+﻿import { Bot, type Context } from "grammy";
 import { env } from "../config/env.js";
 import { registerAdminCommands } from "./admin.commands.js";
 import { registerMessageHandler } from "./message.handler.js";
@@ -6,7 +6,7 @@ import { sendLogToChannel, writeError } from "../services/logger.service.js";
 import { LogLevel } from "@prisma/client";
 
 export function createBot(): Bot<Context> {
-  const bot = new Bot<Context>(env.BOT_TOKEN);
+  const bot = new Bot<Context>(env.TELEGRAM_BOT_TOKEN);
 
   registerAdminCommands(bot);
   registerMessageHandler(bot);
@@ -24,3 +24,4 @@ export function createBot(): Bot<Context> {
 
   return bot;
 }
+

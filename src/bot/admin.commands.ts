@@ -1,7 +1,7 @@
-import { Bot, type Context } from "grammy";
+﻿import { Bot, type Context } from "grammy";
 import { env } from "../config/env.js";
 import { addKeyword, listActiveKeywords, removeKeyword } from "../services/keyword.service.js";
-import { classifyLead } from "../services/leadClassifier.service.js";
+import { classifyMessage } from "../services/leadClassifier.service.js";
 import { getStatsSnapshot, getStatusSnapshot } from "../services/lead.service.js";
 import { checkConfiguredChats, type ChatAccessCheck } from "../services/telegramHealth.service.js";
 import { getCommandArgument, requireAdmin } from "./admin.utils.js";
@@ -136,16 +136,15 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const result = await classifyLead(arg);
+    const result = await classifyMessage(arg);
 
     await ctx.reply(
       [
-        `Lead: ${result.isLead ? "ha" : "yo'q"}`,
-        `Spam: ${result.isSpam ? "ha" : "yo'q"}`,
-        `Score: ${result.score}`,
-        `Route: ${result.route ?? "aniqlanmadi"}`,
-        `Keywords: ${result.matchedKeywords.join(", ") || "-"}`,
-        `Patterns: ${result.matchedPatterns.join(", ") || "-"}`
+        `Passenger request: ${result.is_passenger_request ? "ha" : "yo'q"}`,
+        `Confidence: ${result.confidence}`,
+        `Provider: ${result.provider}`,
+        `Reason: ${result.reason}`,
+        `Keyword score: ${result.keywordScore ?? "-"}`
       ].join("\n")
     );
   });
@@ -159,8 +158,8 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       [
         `Chat ID: ${ctx.chat?.id ?? "n/a"}`,
         `User ID: ${ctx.from?.id ?? "n/a"}`,
-        `PASSENGER_GROUP_ID: ${env.PASSENGER_GROUP_ID}`,
-        `DRIVER_GROUP_OR_CHANNEL_ID: ${env.DRIVER_GROUP_OR_CHANNEL_ID}`
+        `PASSENGERS_CHAT_ID: ${env.PASSENGERS_CHAT_ID}`,
+        `DRIVERS_CHAT_ID: ${env.DRIVERS_CHAT_ID}`
       ].join("\n")
     );
   });
@@ -180,3 +179,4 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     await ctx.reply([line("PASSENGER", check.passenger), line("DRIVER", check.driver)].join("\n\n"));
   });
 }
+

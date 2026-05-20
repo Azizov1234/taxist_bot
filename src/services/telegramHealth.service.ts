@@ -40,9 +40,10 @@ async function checkSingleChat(api: Api<RawApi>, chatId: number): Promise<ChatAc
 
 export async function checkConfiguredChats(api: Api<RawApi>): Promise<{ passenger: ChatAccessCheck; driver: ChatAccessCheck }> {
   const [passenger, driver] = await Promise.all([
-    checkSingleChat(api, env.PASSENGER_GROUP_ID),
-    checkSingleChat(api, env.DRIVER_GROUP_OR_CHANNEL_ID)
+    checkSingleChat(api, env.PASSENGERS_CHAT_ID),
+    checkSingleChat(api, env.DRIVERS_CHAT_ID)
   ]);
 
   return { passenger, driver };
 }
+

@@ -1,4 +1,4 @@
-import { Bot, type Context } from "grammy";
+﻿import { Bot, type Context } from "grammy";
 import { env } from "../config/env.js";
 import { processIncomingMessage } from "../services/lead.service.js";
 import { writeError, writeInfo } from "../services/logger.service.js";
@@ -12,7 +12,7 @@ export function registerMessageHandler(bot: Bot<Context>): void {
         return;
       }
 
-      if (ctx.chat?.id !== env.PASSENGER_GROUP_ID) {
+      if (ctx.chat?.id !== env.PASSENGERS_CHAT_ID) {
         return;
       }
 
@@ -32,3 +32,4 @@ export function registerMessageHandler(bot: Bot<Context>): void {
     }
   });
 }
+

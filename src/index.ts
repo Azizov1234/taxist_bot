@@ -1,4 +1,4 @@
-import { createBot } from "./bot/index.js";
+﻿import { createBot } from "./bot/index.js";
 import { env } from "./config/env.js";
 import { prisma } from "./prisma/client.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
@@ -30,8 +30,8 @@ async function main(): Promise<void> {
   });
 
   await writeInfo("Bot is starting", {
-    passengerGroupId: env.PASSENGER_GROUP_ID,
-    driverGroupOrChannelId: env.DRIVER_GROUP_OR_CHANNEL_ID
+    passengerGroupId: env.PASSENGERS_CHAT_ID,
+    driverGroupOrChannelId: env.DRIVERS_CHAT_ID
   });
 
   const chatCheck = await checkConfiguredChats(bot.api);
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     if (passengerStatus !== "administrator" && passengerStatus !== "creator") {
       await writeWarn("Passenger chat delete permission risk", {
         hint: "Botni passenger guruhida admin qiling va Delete messages huquqini bering",
-        passengerChatId: env.PASSENGER_GROUP_ID,
+        passengerChatId: env.PASSENGERS_CHAT_ID,
         currentStatus: passengerStatus
       });
     }
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
 main().catch(async (error) => {
   if (isPollingConflictError(error)) {
     await writeWarn("Polling conflict detected: another bot instance is using the same token", {
-      hint: "Stop all other instances or rotate BOT_TOKEN via BotFather /revoke"
+      hint: "Stop all other instances or rotate TELEGRAM_BOT_TOKEN via BotFather /revoke"
     });
   }
 
@@ -92,3 +92,4 @@ main().catch(async (error) => {
   await prisma.$disconnect();
   process.exit(1);
 });
+
