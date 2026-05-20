@@ -274,6 +274,47 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     return { processed: false, reason: "Forwarded message ignored" };
   }
 
+  if (isDriverAdByHeuristic) {
+    const phone = extractPhone(originalText);
+    const detectedRoute = detectRoute(originalText);
+    const fullName =
+      ctx.from?.first_name !== undefined
+        ? formatFullName(ctx.from.first_name, ctx.from.last_name)
+        : "sender_chat" in msg && msg.sender_chat?.title
+          ? msg.sender_chat.title
+          : ctx.chat.title ?? "Noma'lum";
+    const username = ctx.from?.username ?? null;
+
+    await writeInfo("Driver advertisement blocked before AI", {
+      sourceMessageId,
+      text: shorten(originalText, 350),
+      driverAdHits: earlyDriverAdHits,
+      driverAdPatternHits: earlyDriverAdPatternHits
+    });
+
+    await prisma.lead.create({
+      data: {
+        sourceChatId,
+        sourceMessageId,
+        userId,
+        fullName,
+        username,
+        phone,
+        originalText,
+        normalizedText,
+        detectedRoute,
+        status: LeadStatus.IGNORED
+      }
+    });
+
+    await deletePassengerMessage(ctx, sourceMessageId, "driver_ad_precheck");
+
+    return {
+      processed: false,
+      reason: "Driver advertisement blocked before AI"
+    };
+  }
+
   const classification = await classifyMessage(originalText);
   const keywordResult = keywordClassify(originalText);
   const driverAdHits = detectDriverAdHits(classification.normalizedText);
