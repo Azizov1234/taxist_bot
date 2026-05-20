@@ -75,8 +75,9 @@ async function sendLeadToDriver(ctx: Context, sourceMessageId: number): Promise<
 
 export async function processIncomingMessage(ctx: Context): Promise<ProcessMessageResult> {
   const msg = ctx.msg;
+  const isChannelSource = ctx.chat?.type === "channel";
 
-  if (!msg || !ctx.chat || !ctx.from) {
+  if (!msg || !ctx.chat) {
     return { processed: false, reason: "Message context missing" };
   }
 
@@ -84,7 +85,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     return { processed: false, reason: "Message from disallowed chat" };
   }
 
-  if (ctx.from.is_bot) {
+  if (ctx.from?.is_bot) {
     return { processed: false, reason: "Message from bot user" };
   }
 
@@ -92,13 +93,18 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     return { processed: false, reason: "Forwarded message ignored" };
   }
 
-  if (isSenderChatMessage(msg)) {
+  if (!isChannelSource && isSenderChatMessage(msg)) {
     return { processed: false, reason: "Sender chat/anonymous message ignored" };
   }
 
   const sourceMessageId = msg.message_id;
   const sourceChatId = String(ctx.chat.id);
-  const userId = String(ctx.from.id);
+  const userId =
+    ctx.from?.id !== undefined
+      ? String(ctx.from.id)
+      : "sender_chat" in msg && msg.sender_chat
+        ? `chat:${msg.sender_chat.id}`
+        : `chat:${ctx.chat.id}`;
   const text = getMessageText(msg);
 
   if (!text || text.trim().length === 0) {
@@ -138,8 +144,13 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     providerStatuses: classification.providerStatuses.map((status) => ({ ...status }))
   });
 
-  const fullName = formatFullName(ctx.from.first_name, ctx.from.last_name);
-  const username = ctx.from.username ?? null;
+  const fullName =
+    ctx.from?.first_name !== undefined
+      ? formatFullName(ctx.from.first_name, ctx.from.last_name)
+      : "sender_chat" in msg && msg.sender_chat?.title
+        ? msg.sender_chat.title
+        : ctx.chat.title ?? "Noma'lum";
+  const username = ctx.from?.username ?? null;
   const phone = extractPhone(originalText);
   const detectedRoute = detectRoute(originalText);
 

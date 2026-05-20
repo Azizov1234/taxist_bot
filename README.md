@@ -36,13 +36,17 @@ MIN_CONFIDENCE=0.70
 AI_COOLDOWN_MINUTES=10
 ```
 
+Eslatma:
+- `.env` - real ishlaydigan konfiguratsiya.
+- `.env.example` - faqat namuna/shablon, bot undan o'qimaydi.
+
 `LOG_CHANNEL_ID` ixtiyoriy.
 
 ## 1) BotFather'dan token olish
 1. Telegram'da `@BotFather` ga kiring.
 2. `/newbot` bosing.
 3. Bot nomi va username bering.
-4. Berilgan tokenni `BOT_TOKEN`ga yozing.
+4. Berilgan tokenni `TELEGRAM_BOT_TOKEN`ga yozing.
 
 ## 2) /setprivacy -> Disable qilish
 1. `@BotFather` -> `/setprivacy`
@@ -52,11 +56,11 @@ AI_COOLDOWN_MINUTES=10
 Bu bot guruhdagi oddiy xabarlarni ham ko'rishi uchun kerak.
 
 ## 3) Botni yo'lovchilar guruhiga admin qilish
-- Bot `PASSENGER_GROUP_ID` guruhida bo'lishi kerak.
+- Bot `PASSENGERS_CHAT_ID` guruhida bo'lishi kerak.
 - Xabarlarni o'qish imkoniga ega bo'lsin.
 
 ## 4) Botni haydovchilar kanal/guruhiga admin qilish
-- Bot `DRIVER_GROUP_OR_CHANNEL_ID` chatiga xabar yubora olishi kerak.
+- Bot `DRIVERS_CHAT_ID` chatiga xabar yubora olishi kerak.
 - Kanal bo'lsa, post qilish huquqi bo'lsin.
 
 ## 5) Group/Channel ID olish

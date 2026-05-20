@@ -4,8 +4,12 @@ import { processIncomingMessage } from "../services/lead.service.js";
 import { writeError, writeInfo } from "../services/logger.service.js";
 
 export function registerMessageHandler(bot: Bot<Context>): void {
-  bot.on("message", async (ctx) => {
+  const handleIncoming = async (ctx: Context): Promise<void> => {
     try {
+      if (!ctx.msg) {
+        return;
+      }
+
       const messageText = "text" in ctx.msg && typeof ctx.msg.text === "string" ? ctx.msg.text : "";
 
       if (messageText.startsWith("/")) {
@@ -30,6 +34,8 @@ export function registerMessageHandler(bot: Bot<Context>): void {
         messageId: ctx.msg?.message_id
       });
     }
-  });
-}
+  };
 
+  bot.on("message", handleIncoming);
+  bot.on("channel_post", handleIncoming);
+}

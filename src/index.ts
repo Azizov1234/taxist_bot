@@ -1,9 +1,9 @@
-﻿import { createBot } from "./bot/index.js";
-import { env } from "./config/env.js";
+﻿import { LogLevel } from "@prisma/client";
+import { createBot } from "./bot/index.js";
+import { ENV_FILE_LOADED, ENV_FILE_PATH, env } from "./config/env.js";
 import { prisma } from "./prisma/client.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
 import { sendLogToChannel, writeError, writeInfo, writeWarn } from "./services/logger.service.js";
-import { LogLevel } from "@prisma/client";
 import { checkConfiguredChats } from "./services/telegramHealth.service.js";
 
 function isPollingConflictError(error: unknown): boolean {
@@ -30,6 +30,8 @@ async function main(): Promise<void> {
   });
 
   await writeInfo("Bot is starting", {
+    envFilePath: ENV_FILE_PATH,
+    envFileLoaded: ENV_FILE_LOADED,
     passengerGroupId: env.PASSENGERS_CHAT_ID,
     driverGroupOrChannelId: env.DRIVERS_CHAT_ID
   });
@@ -39,6 +41,7 @@ async function main(): Promise<void> {
     passenger: JSON.parse(JSON.stringify(chatCheck.passenger)),
     driver: JSON.parse(JSON.stringify(chatCheck.driver))
   };
+
   if (!chatCheck.passenger.ok || !chatCheck.driver.ok) {
     await writeWarn("Chat configuration check failed", {
       passenger: chatCheckMeta.passenger,
@@ -79,7 +82,7 @@ main().catch(async (error) => {
   }
 
   await writeError("Fatal startup error", error);
-  // LOG channel attempt best effort
+
   try {
     const bot = createBot();
     await sendLogToChannel(bot.api, LogLevel.ERROR, "Bot start xatosi", {
@@ -92,4 +95,3 @@ main().catch(async (error) => {
   await prisma.$disconnect();
   process.exit(1);
 });
-

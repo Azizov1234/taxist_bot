@@ -1,7 +1,17 @@
 ﻿import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-dotenv.config({ override: true });
+const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
+export const ENV_FILE_PATH = resolve(CURRENT_DIR, "../../.env");
+
+const dotenvResult = dotenv.config({
+  path: ENV_FILE_PATH,
+  override: true
+});
+
+export const ENV_FILE_LOADED = Boolean(dotenvResult.parsed);
 
 function emptyToUndefined(value: unknown): unknown {
   if (value === undefined || value === null) {
@@ -11,6 +21,16 @@ function emptyToUndefined(value: unknown): unknown {
   const raw = String(value).trim();
   return raw.length === 0 ? undefined : raw;
 }
+
+const chatIdSchema = z.preprocess((value) => {
+  const sanitized = emptyToUndefined(value);
+  if (sanitized === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(sanitized);
+  return Number.isFinite(parsed) ? parsed : sanitized;
+}, z.number().int().refine((value) => Math.abs(value) >= 1, "Telegram ID must be a non-zero integer"));
 
 const optionalChatIdSchema = z.preprocess((value) => {
   const sanitized = emptyToUndefined(value);
@@ -34,63 +54,26 @@ const optionalNumberSchema = z.preprocess((value) => {
 
 const optionalStringSchema = z.preprocess((value) => emptyToUndefined(value), z.string().optional());
 
-const rawEnvSchema = z
-  .object({
-    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-    TELEGRAM_BOT_TOKEN: optionalStringSchema,
-    BOT_TOKEN: optionalStringSchema,
-    PASSENGERS_CHAT_ID: optionalChatIdSchema,
-    PASSENGER_GROUP_ID: optionalChatIdSchema,
-    DRIVERS_CHAT_ID: optionalChatIdSchema,
-    DRIVER_GROUP_OR_CHANNEL_ID: optionalChatIdSchema,
-    ADMIN_TELEGRAM_ID: optionalChatIdSchema,
-    LOG_CHANNEL_ID: optionalChatIdSchema,
-    DATABASE_URL: optionalStringSchema,
-    GROQ_API_KEY: optionalStringSchema,
-    GEMINI_API_KEY: optionalStringSchema,
-    OPENROUTER_API_KEY: optionalStringSchema,
-    MIN_CONFIDENCE: optionalNumberSchema,
-    AI_COOLDOWN_MINUTES: optionalNumberSchema,
-    AI_TIMEOUT_MS: optionalNumberSchema,
-    GROQ_MODEL: optionalStringSchema,
-    GEMINI_MODEL: optionalStringSchema,
-    OPENROUTER_MODEL: optionalStringSchema
-  })
-  .superRefine((data, ctx) => {
-    if (!data.TELEGRAM_BOT_TOKEN && !data.BOT_TOKEN) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "TELEGRAM_BOT_TOKEN is required (or BOT_TOKEN for backward compatibility)",
-        path: ["TELEGRAM_BOT_TOKEN"]
-      });
-    }
+const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  TELEGRAM_BOT_TOKEN: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "TELEGRAM_BOT_TOKEN is required")),
+  PASSENGERS_CHAT_ID: chatIdSchema,
+  DRIVERS_CHAT_ID: chatIdSchema,
+  ADMIN_TELEGRAM_ID: optionalChatIdSchema,
+  LOG_CHANNEL_ID: optionalChatIdSchema,
+  DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
+  GROQ_API_KEY: optionalStringSchema,
+  GEMINI_API_KEY: optionalStringSchema,
+  OPENROUTER_API_KEY: optionalStringSchema,
+  MIN_CONFIDENCE: optionalNumberSchema,
+  AI_COOLDOWN_MINUTES: optionalNumberSchema,
+  AI_TIMEOUT_MS: optionalNumberSchema,
+  GROQ_MODEL: optionalStringSchema,
+  GEMINI_MODEL: optionalStringSchema,
+  OPENROUTER_MODEL: optionalStringSchema
+});
 
-    if (data.PASSENGERS_CHAT_ID === undefined && data.PASSENGER_GROUP_ID === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "PASSENGERS_CHAT_ID is required (or PASSENGER_GROUP_ID for backward compatibility)",
-        path: ["PASSENGERS_CHAT_ID"]
-      });
-    }
-
-    if (data.DRIVERS_CHAT_ID === undefined && data.DRIVER_GROUP_OR_CHANNEL_ID === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "DRIVERS_CHAT_ID is required (or DRIVER_GROUP_OR_CHANNEL_ID for backward compatibility)",
-        path: ["DRIVERS_CHAT_ID"]
-      });
-    }
-
-    if (!data.DATABASE_URL) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "DATABASE_URL is required",
-        path: ["DATABASE_URL"]
-      });
-    }
-  });
-
-const parsed = rawEnvSchema.safeParse(process.env);
+const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   const flattened = parsed.error.flatten().fieldErrors;
@@ -100,10 +83,6 @@ if (!parsed.success) {
 
   throw new Error(`Invalid environment variables: ${details}`);
 }
-
-const token = parsed.data.TELEGRAM_BOT_TOKEN ?? parsed.data.BOT_TOKEN;
-const passengersChatId = parsed.data.PASSENGERS_CHAT_ID ?? parsed.data.PASSENGER_GROUP_ID;
-const driversChatId = parsed.data.DRIVERS_CHAT_ID ?? parsed.data.DRIVER_GROUP_OR_CHANNEL_ID;
 
 const minConfidence = parsed.data.MIN_CONFIDENCE ?? 0.7;
 const aiCooldownMinutes = parsed.data.AI_COOLDOWN_MINUTES ?? 10;
@@ -121,15 +100,11 @@ if (aiTimeoutMs <= 0) {
   throw new Error("Invalid environment variables: AI_TIMEOUT_MS must be greater than 0");
 }
 
-if (!token || passengersChatId === undefined || driversChatId === undefined || !parsed.data.DATABASE_URL) {
-  throw new Error("Invalid environment variables: missing required Telegram or database configuration");
-}
-
 export const env = {
   NODE_ENV: parsed.data.NODE_ENV,
-  TELEGRAM_BOT_TOKEN: token,
-  PASSENGERS_CHAT_ID: passengersChatId,
-  DRIVERS_CHAT_ID: driversChatId,
+  TELEGRAM_BOT_TOKEN: parsed.data.TELEGRAM_BOT_TOKEN,
+  PASSENGERS_CHAT_ID: parsed.data.PASSENGERS_CHAT_ID,
+  DRIVERS_CHAT_ID: parsed.data.DRIVERS_CHAT_ID,
   ADMIN_TELEGRAM_ID: parsed.data.ADMIN_TELEGRAM_ID,
   LOG_CHANNEL_ID: parsed.data.LOG_CHANNEL_ID,
   DATABASE_URL: parsed.data.DATABASE_URL,
@@ -141,12 +116,7 @@ export const env = {
   AI_TIMEOUT_MS: Math.round(aiTimeoutMs),
   GROQ_MODEL: parsed.data.GROQ_MODEL ?? "llama-3.1-8b-instant",
   GEMINI_MODEL: parsed.data.GEMINI_MODEL ?? "gemini-1.5-flash",
-  OPENROUTER_MODEL: parsed.data.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
-
-  // Backward-compatible aliases
-  BOT_TOKEN: token,
-  PASSENGER_GROUP_ID: passengersChatId,
-  DRIVER_GROUP_OR_CHANNEL_ID: driversChatId
+  OPENROUTER_MODEL: parsed.data.OPENROUTER_MODEL ?? "openai/gpt-4o-mini"
 };
 
 export type AppEnv = typeof env;
