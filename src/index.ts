@@ -64,6 +64,7 @@ async function main(): Promise<void> {
   }
 
   await bot.start({
+    drop_pending_updates: true,
     onStart: async (me) => {
       await writeInfo("Bot started", { username: me.username, id: me.id });
       await sendLogToChannel(bot.api, LogLevel.INFO, "Taxi lead bot ishga tushdi", {

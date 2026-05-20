@@ -1,16 +1,37 @@
 ﻿import { LeadStatus, LogLevel } from "@prisma/client";
 import type { Context } from "grammy";
+import { DRIVER_AD_NEGATIVE_KEYWORDS } from "../config/defaultKeywords.js";
 import { env } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
-import { classifyMessage } from "./leadClassifier.service.js";
+import { classifyMessage, keywordClassify, normalizeText } from "./leadClassifier.service.js";
 import { extractPhone } from "../utils/phone.js";
 import { detectRoute } from "../utils/route.js";
+import { formatMessageDate } from "../utils/time.js";
 import { stripExtraPunctuation } from "../utils/text.js";
 import { sendLogToChannel, writeError, writeInfo, writeWarn } from "./logger.service.js";
 
 export interface ProcessMessageResult {
   processed: boolean;
   reason?: string;
+}
+
+const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsKeyword(normalizedText: string, normalizedKeyword: string): boolean {
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  const boundaryPattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(normalizedKeyword)}(?=$|[^\\p{L}\\p{N}])`, "iu");
+  return boundaryPattern.test(normalizedText);
+}
+
+function detectDriverAdHits(normalizedText: string): string[] {
+  return DRIVER_AD_KEYWORDS_NORMALIZED.filter((keyword) => keyword.length > 0 && containsKeyword(normalizedText, keyword));
 }
 
 function isForwardedMessage(msg: NonNullable<Context["msg"]>): boolean {
@@ -21,10 +42,6 @@ function isForwardedMessage(msg: NonNullable<Context["msg"]>): boolean {
     ("forward_sender_name" in msg && Boolean(msg.forward_sender_name)) ||
     ("forward_date" in msg && typeof msg.forward_date === "number")
   );
-}
-
-function isSenderChatMessage(msg: NonNullable<Context["msg"]>): boolean {
-  return "sender_chat" in msg && Boolean(msg.sender_chat);
 }
 
 function getMessageText(msg: Context["msg"]): string | null {
@@ -56,10 +73,57 @@ function shorten(text: string, max = 300): string {
   return `${text.slice(0, max)}...`;
 }
 
-async function sendLeadToDriver(ctx: Context, sourceMessageId: number): Promise<number> {
+function extractRouteParts(route: string | null): { from: string | null; to: string | null } {
+  if (!route) {
+    return { from: null, to: null };
+  }
+
+  const [rawFrom, rawTo] = route.split("->").map((part) => part.trim());
+  const from = rawFrom && rawFrom.toLowerCase() !== "aniq emas" ? rawFrom : null;
+  const to = rawTo && rawTo.length > 0 ? rawTo : null;
+
+  return { from, to };
+}
+
+function buildDriverLeadSummary(params: {
+  fullName: string;
+  username: string | null;
+  phone: string | null;
+  route: string | null;
+  messageTime: string;
+  originalMessage: string;
+  sourceMessageId: number;
+}): string {
+  const usernameValue = params.username ? `@${params.username}` : "yo'q";
+  const phoneValue = params.phone ?? "xabarda topilmadi";
+  const routeParts = extractRouteParts(params.route);
+  const fromValue = routeParts.from ?? "aniqlanmadi";
+  const toValue = routeParts.to ?? "aniqlanmadi";
+
+  return [
+    "🚕 Yangi yo'lovchi so'rovi",
+    "",
+    `👤 Foydalanuvchi: ${params.fullName}`,
+    `🔗 Username: ${usernameValue}`,
+    `📞 Telefon: ${phoneValue}`,
+    `📍 Qayerdan: ${fromValue}`,
+    `🎯 Qayergacha: ${toValue}`,
+    `🕒 Vaqt: ${params.messageTime}`,
+    "",
+    "💬 Xabar:",
+    shorten(params.originalMessage, 2500),
+    "",
+    "⚪ Manba: Yo'lovchilar guruhi",
+    `🆔 Message ID: ${params.sourceMessageId}`
+  ].join("\n");
+}
+
+async function sendLeadToDriver(ctx: Context, sourceMessageId: number, summaryText: string): Promise<number> {
+  const summaryMessage = await ctx.api.sendMessage(env.DRIVERS_CHAT_ID, summaryText);
+
   try {
     const forwarded = await ctx.api.forwardMessage(env.DRIVERS_CHAT_ID, env.PASSENGERS_CHAT_ID, sourceMessageId);
-    return forwarded.message_id;
+    return forwarded.message_id || summaryMessage.message_id;
   } catch (forwardError) {
     await writeWarn("forwardMessage failed, trying copyMessage", {
       sourceMessageId,
@@ -68,14 +132,38 @@ async function sendLeadToDriver(ctx: Context, sourceMessageId: number): Promise<
       forwardError: String(forwardError)
     });
 
-    const copied = await ctx.api.copyMessage(env.DRIVERS_CHAT_ID, env.PASSENGERS_CHAT_ID, sourceMessageId);
-    return copied.message_id;
+    try {
+      const copied = await ctx.api.copyMessage(env.DRIVERS_CHAT_ID, env.PASSENGERS_CHAT_ID, sourceMessageId);
+      return copied.message_id || summaryMessage.message_id;
+    } catch (copyError) {
+      await writeWarn("copyMessage failed after forwardMessage failure", {
+        sourceMessageId,
+        copyError: String(copyError)
+      });
+
+      return summaryMessage.message_id;
+    }
+  }
+}
+
+async function deletePassengerMessage(ctx: Context, sourceMessageId: number, reason: string): Promise<void> {
+  try {
+    await ctx.api.deleteMessage(env.PASSENGERS_CHAT_ID, sourceMessageId);
+    await writeInfo("Passenger message deleted", {
+      sourceMessageId,
+      reason
+    });
+  } catch (error) {
+    await writeWarn("Failed to delete passenger message", {
+      sourceMessageId,
+      reason,
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 }
 
 export async function processIncomingMessage(ctx: Context): Promise<ProcessMessageResult> {
   const msg = ctx.msg;
-  const isChannelSource = ctx.chat?.type === "channel";
 
   if (!msg || !ctx.chat) {
     return { processed: false, reason: "Message context missing" };
@@ -91,10 +179,6 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   if (isForwardedMessage(msg)) {
     return { processed: false, reason: "Forwarded message ignored" };
-  }
-
-  if (!isChannelSource && isSenderChatMessage(msg)) {
-    return { processed: false, reason: "Sender chat/anonymous message ignored" };
   }
 
   const sourceMessageId = msg.message_id;
@@ -131,7 +215,25 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   const originalText = stripExtraPunctuation(text);
   const classification = await classifyMessage(originalText);
-  const shouldSend = classification.is_passenger_request && classification.confidence >= env.MIN_CONFIDENCE;
+  const keywordResult = keywordClassify(originalText);
+  const driverAdHits = detectDriverAdHits(classification.normalizedText);
+  const isDriverAdMessage = driverAdHits.length > 0;
+  const phone = extractPhone(originalText);
+  const detectedRoute = detectRoute(originalText);
+  const hasHardPassengerSignal = keywordResult.score >= 3 || Boolean(phone) || Boolean(detectedRoute);
+
+  const shouldSendByAI = classification.is_passenger_request && classification.confidence >= env.MIN_CONFIDENCE;
+  const shouldSendByKeywordRescue = !shouldSendByAI && keywordResult.is_passenger_request && keywordResult.score >= 3;
+  const shouldSend = (shouldSendByAI || shouldSendByKeywordRescue) && !isDriverAdMessage && hasHardPassengerSignal;
+  const decisionSource = isDriverAdMessage
+    ? "blocked_driver_ad"
+    : !hasHardPassengerSignal
+      ? "blocked_no_passenger_signal"
+    : shouldSendByAI
+      ? classification.provider
+      : shouldSendByKeywordRescue
+        ? "keyword_rescue"
+        : "skip";
 
   await writeInfo("Message classification", {
     sourceMessageId,
@@ -139,10 +241,30 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     provider: classification.provider,
     confidence: classification.confidence,
     reason: classification.reason,
+    keywordScore: keywordResult.score,
+    keywordReason: keywordResult.reason,
+    driverAdHits,
+    hasHardPassengerSignal,
+    decisionSource,
     action: shouldSend ? "sent" : "skipped",
     minConfidence: env.MIN_CONFIDENCE,
     providerStatuses: classification.providerStatuses.map((status) => ({ ...status }))
   });
+
+  if (classification.provider === "keyword") {
+    await writeWarn("AI providers unavailable, keyword fallback used", {
+      sourceMessageId,
+      keywordScore: keywordResult.score,
+      decisionSource
+    });
+
+    await sendLogToChannel(ctx.api, LogLevel.WARN, "AI limit yoki xato: keyword fallback ishladi", {
+      sourceMessageId,
+      keywordScore: keywordResult.score,
+      decisionSource,
+      providerStatuses: classification.providerStatuses.map((status) => ({ ...status }))
+    });
+  }
 
   const fullName =
     ctx.from?.first_name !== undefined
@@ -151,8 +273,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
         ? msg.sender_chat.title
         : ctx.chat.title ?? "Noma'lum";
   const username = ctx.from?.username ?? null;
-  const phone = extractPhone(originalText);
-  const detectedRoute = detectRoute(originalText);
+  const messageTime = formatMessageDate(new Date(msg.date * 1000));
 
   if (!shouldSend) {
     await prisma.lead.create({
@@ -170,9 +291,13 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
       }
     });
 
+    if (isDriverAdMessage) {
+      await deletePassengerMessage(ctx, sourceMessageId, "driver_ad_message");
+    }
+
     return {
       processed: false,
-      reason: `Skipped by classifier (${classification.provider})`
+      reason: `Skipped by classifier (${classification.provider}, keyword_score=${keywordResult.score}, source=${decisionSource})`
     };
   }
 
@@ -192,7 +317,17 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
   });
 
   try {
-    const forwardedMessageId = await sendLeadToDriver(ctx, sourceMessageId);
+    const summaryText = buildDriverLeadSummary({
+      fullName,
+      username,
+      phone,
+      route: detectedRoute,
+      messageTime,
+      originalMessage: originalText,
+      sourceMessageId
+    });
+
+    const forwardedMessageId = await sendLeadToDriver(ctx, sourceMessageId, summaryText);
 
     await prisma.lead.update({
       where: { id: createdLead.id },
@@ -207,9 +342,12 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
       sourceMessageId,
       forwardedMessageId,
       provider: classification.provider,
+      decisionSource,
       confidence: classification.confidence,
-      reason: classification.reason
+      reason: shouldSendByKeywordRescue ? `keyword_rescue: ${keywordResult.reason}` : classification.reason
     });
+
+    await deletePassengerMessage(ctx, sourceMessageId, "forwarded_passenger_request");
 
     return { processed: true };
   } catch (error) {
@@ -296,4 +434,3 @@ export async function getStatsSnapshot(): Promise<{
     }
   };
 }
-

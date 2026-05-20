@@ -64,13 +64,11 @@ const envSchema = z.object({
   DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
   GROQ_API_KEY: optionalStringSchema,
   GEMINI_API_KEY: optionalStringSchema,
-  OPENROUTER_API_KEY: optionalStringSchema,
   MIN_CONFIDENCE: optionalNumberSchema,
   AI_COOLDOWN_MINUTES: optionalNumberSchema,
   AI_TIMEOUT_MS: optionalNumberSchema,
   GROQ_MODEL: optionalStringSchema,
-  GEMINI_MODEL: optionalStringSchema,
-  OPENROUTER_MODEL: optionalStringSchema
+  GEMINI_MODEL: optionalStringSchema
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -110,13 +108,12 @@ export const env = {
   DATABASE_URL: parsed.data.DATABASE_URL,
   GROQ_API_KEY: parsed.data.GROQ_API_KEY,
   GEMINI_API_KEY: parsed.data.GEMINI_API_KEY,
-  OPENROUTER_API_KEY: parsed.data.OPENROUTER_API_KEY,
   MIN_CONFIDENCE: minConfidence,
   AI_COOLDOWN_MINUTES: aiCooldownMinutes,
   AI_TIMEOUT_MS: Math.round(aiTimeoutMs),
   GROQ_MODEL: parsed.data.GROQ_MODEL ?? "llama-3.1-8b-instant",
-  GEMINI_MODEL: parsed.data.GEMINI_MODEL ?? "gemini-1.5-flash",
-  OPENROUTER_MODEL: parsed.data.OPENROUTER_MODEL ?? "openai/gpt-4o-mini"
+  GEMINI_MODEL: parsed.data.GEMINI_MODEL ?? "gemini-2.5-flash"
 };
 
 export type AppEnv = typeof env;
+

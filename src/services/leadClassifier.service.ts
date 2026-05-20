@@ -12,7 +12,7 @@ import { extractPhone } from "../utils/phone.js";
 import { normalizeUzbekText, stripExtraPunctuation } from "../utils/text.js";
 import { logger } from "./logger.service.js";
 
-type AIProviderName = "groq" | "gemini" | "openrouter";
+type AIProviderName = "groq" | "gemini";
 export type ProviderName = AIProviderName | "keyword";
 
 type ProviderStatus = "active" | "cooldown";
@@ -63,7 +63,7 @@ export interface LeadClassification {
   route: string | null;
 }
 
-const PROVIDER_PRIORITY: AIProviderName[] = ["groq", "gemini", "openrouter"];
+const PROVIDER_PRIORITY: AIProviderName[] = ["groq", "gemini"];
 const TEMPORARY_ERROR_CODES = new Set([500, 502, 503, 504]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -90,6 +90,8 @@ Passenger request means:
 Not passenger request:
 - driver advertising himself
 - driver says he has empty seats
+- driver says he is taking passengers (e.g. "yo'lovchi olamiz", "joy bor", "mashina bor", "olib ketaman")
+- driver replies to others like "kuting", "aloqaga chiqadi", "sizga taksilarim"
 - taxi service advertisement
 - random chat
 - spam
@@ -115,13 +117,6 @@ const providers: Record<AIProviderName, ProviderState> = {
   gemini: {
     name: "gemini",
     apiKey: env.GEMINI_API_KEY,
-    status: "active",
-    disabledUntil: null,
-    reason: null
-  },
-  openrouter: {
-    name: "openrouter",
-    apiKey: env.OPENROUTER_API_KEY,
     status: "active",
     disabledUntil: null,
     reason: null
@@ -304,12 +299,8 @@ function containsKeyword(normalizedText: string, normalizedKeyword: string): boo
     return false;
   }
 
-  if (normalizedKeyword.length <= 2) {
-    const boundaryPattern = new RegExp(`(^|\\s|[.,!?;:()\\[\\]{}])${escapeRegExp(normalizedKeyword)}($|\\s|[.,!?;:()\\[\\]{}])`, "iu");
-    return boundaryPattern.test(normalizedText);
-  }
-
-  return normalizedText.includes(normalizedKeyword);
+  const boundaryPattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(normalizedKeyword)}(?=$|[^\\p{L}\\p{N}])`, "iu");
+  return boundaryPattern.test(normalizedText);
 }
 
 function uniqueNormalized(values: readonly string[]): string[] {
@@ -495,42 +486,6 @@ export async function classifyWithGemini(text: string): Promise<AIResult> {
   return parseAIResult(content);
 }
 
-export async function classifyWithOpenRouter(text: string): Promise<AIResult> {
-  const apiKey = env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is not configured");
-  }
-
-  const payload = {
-    model: env.OPENROUTER_MODEL,
-    temperature: 0,
-    max_tokens: 180,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: `Message:\n${text}` }
-    ]
-  };
-
-  const response = (await requestJson("openrouter", "https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  })) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  const content = response.choices?.[0]?.message?.content;
-
-  if (typeof content !== "string" || content.length === 0) {
-    throw new Error("OpenRouter response content is empty");
-  }
-
-  return parseAIResult(content);
-}
-
 function toProviderSnapshot(providerName: AIProviderName): ProviderStatusSnapshot {
   refreshProviderState(providerName);
   const provider = providers[providerName];
@@ -620,11 +575,7 @@ async function classifyWithProvider(providerName: AIProviderName, text: string):
     return classifyWithGroq(text);
   }
 
-  if (providerName === "gemini") {
-    return classifyWithGemini(text);
-  }
-
-  return classifyWithOpenRouter(text);
+  return classifyWithGemini(text);
 }
 
 export async function classifyMessage(text: string): Promise<MessageClassification> {

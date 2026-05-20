@@ -30,7 +30,6 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/taxi_bot?schema=publ
 
 GROQ_API_KEY=
 GEMINI_API_KEY=
-OPENROUTER_API_KEY=
 
 MIN_CONFIDENCE=0.70
 AI_COOLDOWN_MINUTES=10
@@ -129,7 +128,7 @@ Faqat `ADMIN_TELEGRAM_ID` foydalanuvchi bu buyruqlarni ishlata oladi.
 ## Lead aniqlash logikasi
 - Faqat `PASSENGERS_CHAT_ID` ichidagi xabarlar analiz qilinadi.
 - Matn normalize qilinadi (`o'`, `oвЂ`, `oК»` -> `o`; `g'`, `gвЂ`, `gК»` -> `g`).
-- AI provider ketma-ketligi: `Groq -> Gemini -> OpenRouter -> keyword fallback`.
+- AI provider ketma-ketligi: `Groq -> Gemini -> keyword fallback`.
 - `429`, timeout yoki `5xx` xatoda provider avtomatik cooldown holatiga o'tadi va keyingi provider ishlaydi.
 - Hamma provider fail bo'lsa keyword fallback ishlaydi.
 - Pattern asosida ham aniqlaydi (`...dan ...ga`, `...ga ketish kerak`, `joy bormi` va boshqalar).
