@@ -1,4 +1,4 @@
-﻿import { Bot, type Context } from "grammy";
+import { Bot, type Context } from "grammy";
 import { env } from "../config/env.js";
 import { registerAdminCommands } from "./admin.commands.js";
 import { registerMessageHandler } from "./message.handler.js";
@@ -6,6 +6,10 @@ import { sendLogToChannel, writeError } from "../services/logger.service.js";
 import { LogLevel } from "@prisma/client";
 
 export function createBot(): Bot<Context> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("TELEGRAM_BOT_TOKEN is required for legacy mode");
+  }
+
   const bot = new Bot<Context>(env.TELEGRAM_BOT_TOKEN);
 
   registerAdminCommands(bot);

@@ -1,4 +1,4 @@
-﻿import { DEFAULT_SPAM_KEYWORDS } from "../config/defaultKeywords.js";
+import { DEFAULT_SPAM_KEYWORDS } from "../config/defaultKeywords.js";
 
 const APOSTROPHE_VARIANTS_REGEX = /[`?’????']/g;
 

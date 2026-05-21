@@ -1,4 +1,4 @@
-﻿import {
+import {
   DRIVER_AD_NEGATIVE_KEYWORDS,
   MOVEMENT_KEYWORDS,
   PASSENGER_KEYWORDS_CYRILLIC,
@@ -6,29 +6,49 @@
   ROUTE_KEYWORDS,
   SPAM_KEYWORDS
 } from "../config/defaultKeywords.js";
-import { env } from "../config/env.js";
+import { type AIProviderName, env } from "../config/env.js";
 import { detectRoute } from "../utils/route.js";
 import { extractPhone } from "../utils/phone.js";
 import { normalizeUzbekText, stripExtraPunctuation } from "../utils/text.js";
 import { logger } from "./logger.service.js";
 
-type AIProviderName = "groq" | "gemini";
 export type ProviderName = AIProviderName | "keyword";
 
 type ProviderStatus = "active" | "cooldown";
 
 interface ProviderState {
   name: AIProviderName;
-  apiKey: string | undefined;
   status: ProviderStatus;
   disabledUntil: number | null;
   reason: string | null;
 }
 
 interface AIResult {
-  is_passenger_request: boolean;
+  is_passenger_lead: boolean;
   confidence: number;
   reason: string;
+  from_location: string | null;
+  to_location: string | null;
+  phone: string | null;
+  passenger_count: number | null;
+  time_hint: string | null;
+  is_driver_ad: boolean;
+  is_spam: boolean;
+}
+
+interface LeadProviderAdapter {
+  readonly name: AIProviderName;
+  isConfigured(): boolean;
+  analyzeLead(text: string): Promise<AIResult>;
+}
+
+interface OpenAICompatibleRequest {
+  providerName: AIProviderName;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  text: string;
+  extraHeaders?: Record<string, string>;
 }
 
 export interface ProviderStatusSnapshot {
@@ -47,9 +67,19 @@ export interface MessageClassification {
   normalizedText: string;
   keywordScore?: number;
   providerStatuses: ProviderStatusSnapshot[];
+  isDriverAd: boolean;
+  isSpam: boolean;
+  fromLocation: string | null;
+  toLocation: string | null;
+  phone: string | null;
+  passengerCount: number | null;
+  timeHint: string | null;
 }
 
-export interface KeywordClassification extends AIResult {
+export interface KeywordClassification {
+  is_passenger_request: boolean;
+  confidence: number;
+  reason: string;
   score: number;
 }
 
@@ -63,68 +93,66 @@ export interface LeadClassification {
   route: string | null;
 }
 
-const PROVIDER_PRIORITY: AIProviderName[] = ["groq", "gemini"];
+const ALL_AI_PROVIDERS: AIProviderName[] = ["gemini", "groq", "cerebras", "openrouter", "cloudflare"];
 const TEMPORARY_ERROR_CODES = new Set([500, 502, 503, 504]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-const SYSTEM_PROMPT = `You are a Telegram taxi request classifier.
+const SYSTEM_PROMPT = `Sen Telegram taxi guruhidagi xabarni analiz qilasan.
+Maqsad: xabar YO'LOVCHI taxi qidiryaptimi yoki yo'qmi aniqlash.
 
-Analyze one Telegram message. The message can be in Uzbek Latin, Uzbek Cyrillic, Russian, or mixed slang.
+Faqat JSON qaytar. Hech qanday qo'shimcha matn qaytarma.
 
-Return ONLY valid JSON:
+Schema:
 {
-  "is_passenger_request": true,
+  "is_passenger_lead": true,
   "confidence": 0.0,
-  "reason": "short reason"
+  "reason": "qisqa sabab",
+  "from_location": null,
+  "to_location": null,
+  "phone": null,
+  "passenger_count": null,
+  "time_hint": null,
+  "is_driver_ad": false,
+  "is_spam": false
 }
 
-Passenger request means:
-- person needs taxi
-- person needs car
-- person needs a ride
-- person asks who can take them
-- person writes route/location/time/phone
-- person asks fare for a concrete route (example: "Gulistondan Bekobodga qancha?")
-- person says “taxi kerak”, “taksi kerak”, “mashina kerak”, “borish kerak”, “ketish kerak”
-- Uzbek Cyrillic, Latin, Russian and slang should be understood
+Qoidalar:
+- Odam taxi/taksi qidirayotgan bo'lsa: is_passenger_lead=true.
+- Odam borish/ketish niyatini yozsa: is_passenger_lead=true.
+- Driver reklama bo'lsa ("bo'sh joy bor", "odam olaman", "taxi xizmati"): is_passenger_lead=false, is_driver_ad=true.
+- Spam/reklama/link/kanalga chaqirish bo'lsa: is_spam=true.
+- Lotin, kirill, aralash yozuv, xato yozuvlarni tushun.
+- Agar matn faqat umumiy savol bo'lsa ("qayerdan qayerga", "qayerga?", "куда?") va yo'lovchi niyati aniq bo'lmasa: is_passenger_lead=false.
+- from_location/to_location maydonlariga savol so'zlarini yozma: "qayer", "qayerga", "qayerdan", "куда", "откуда". Bunday holatda null qaytar.
+- Aniqlanmagan maydonlar null bo'lsin.`;
 
-Not passenger request:
-- driver advertising himself
-- driver says he has empty seats
-- driver says he is taking passengers (e.g. "yo'lovchi olamiz", "joy bor", "mashina bor", "olib ketaman")
-- driver calls clients to his own car (e.g. "ketadiganlar bo'lsa olib ketaman", "odam olaman")
-- driver replies to others like "kuting", "aloqaga chiqadi", "sizga taksilarim"
-- taxi service advertisement
-- random chat
-- spam
-- price discussion only without route/taxi intent
-- links/reklama
+const GENERIC_LOCATION_TOKENS = new Set([
+  "qayer",
+  "qayerga",
+  "qayerdan",
+  "qayerda",
+  "qaer",
+  "qaerga",
+  "qaerdan",
+  "qaerda",
+  "qayoqqa",
+  "куда",
+  "откуда",
+  "где",
+  "where",
+  "where to",
+  "from where"
+]);
 
-Rules:
-- If passenger needs taxi, return true.
-- Route + fare question usually means passenger request.
-- If driver is offering taxi, return false.
-- If unsure, return false.
-- confidence must be between 0 and 1.
-- Do not return markdown.
-- Do not explain outside JSON.`;
-
-const providers: Record<AIProviderName, ProviderState> = {
-  groq: {
-    name: "groq",
-    apiKey: env.GROQ_API_KEY,
-    status: "active",
-    disabledUntil: null,
-    reason: null
-  },
-  gemini: {
-    name: "gemini",
-    apiKey: env.GEMINI_API_KEY,
-    status: "active",
-    disabledUntil: null,
-    reason: null
-  }
-};
+const UZBEK_ENGLISH_HINTS: Array<{ pattern: RegExp; hint: string }> = [
+  { pattern: /\b(taxi|taksi|takis)\b/iu, hint: "taxi request" },
+  { pattern: /\b(kerak|kere|kerek|ker|krk)\b/iu, hint: "needs a ride" },
+  { pattern: /\b(hozir|tez|srochna|shoshilinch)\b/iu, hint: "urgent / now" },
+  { pattern: /\b(qayerdan|qayerga|qayerda|qaerdan|qaerga)\b/iu, hint: "location question (from/to/where)" },
+  { pattern: /\b(ketish|borish|ketaman|boraman)\b/iu, hint: "travel intent (go/leave)" },
+  { pattern: /\b(odam|kishi)\b/iu, hint: "passenger count mentioned" },
+  { pattern: /\b(joy bor|odam olaman|mijoz olaman|yolovchi olaman)\b/iu, hint: "driver advertisement signal" }
+];
 
 class AIProviderHttpError extends Error {
   readonly provider: AIProviderName;
@@ -211,54 +239,6 @@ function parseRetryAfterMs(value: string | null): number | null {
   return null;
 }
 
-function refreshProviderState(providerName: AIProviderName): void {
-  const provider = providers[providerName];
-  if (provider.status !== "cooldown") {
-    return;
-  }
-
-  if (!provider.disabledUntil) {
-    provider.status = "active";
-    provider.reason = null;
-    return;
-  }
-
-  if (Date.now() >= provider.disabledUntil) {
-    provider.status = "active";
-    provider.disabledUntil = null;
-    provider.reason = null;
-    logger.info({ provider: providerName }, "Provider cooldown finished, provider is active again");
-  }
-}
-
-function isProviderConfigured(providerName: AIProviderName): boolean {
-  return Boolean(providers[providerName].apiKey);
-}
-
-function isProviderAvailable(providerName: AIProviderName): boolean {
-  refreshProviderState(providerName);
-  const provider = providers[providerName];
-
-  if (!provider.apiKey) {
-    return false;
-  }
-
-  return provider.status === "active";
-}
-
-function getErrorSummary(error: unknown): string {
-  if (error instanceof AIProviderHttpError) {
-    const body = error.responseBody.slice(0, 250);
-    return `HTTP ${error.status}: ${body || error.message}`;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
 function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
   const withoutFence = trimmed.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
@@ -277,23 +257,85 @@ function extractJsonObject(raw: string): string {
   return withoutFence;
 }
 
+function asStringOrNull(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLocationToken(value: string): string {
+  return normalizeText(value)
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeLocationFromAI(value: unknown): string | null {
+  const raw = asStringOrNull(value);
+  if (!raw) {
+    return null;
+  }
+
+  const token = normalizeLocationToken(raw);
+  if (!token || GENERIC_LOCATION_TOKENS.has(token)) {
+    return null;
+  }
+
+  return raw;
+}
+
+function buildProviderInputText(text: string): string {
+  const normalized = normalizeText(text);
+  const hints = UZBEK_ENGLISH_HINTS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.hint);
+  const uniqueHints = [...new Set(hints)];
+  const hintLine = uniqueHints.length > 0 ? uniqueHints.join("; ") : "none";
+
+  return [
+    `Original message: ${text}`,
+    `Normalized message: ${normalized}`,
+    `English hints: ${hintLine}`
+  ].join("\n");
+}
+
+function asNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.max(1, Math.round(parsed));
+}
+
 function parseAIResult(raw: string): AIResult {
   const payload = extractJsonObject(raw);
   const parsed = JSON.parse(payload) as Record<string, unknown>;
-  const rawDecision = parsed.is_passenger_request;
-  const isPassengerRequest =
+
+  const rawDecision = parsed.is_passenger_lead ?? parsed.is_passenger_request;
+  const isPassengerLead =
     typeof rawDecision === "boolean"
       ? rawDecision
       : typeof rawDecision === "string"
         ? rawDecision.trim().toLowerCase() === "true"
         : false;
-  const rawConfidence = parsed.confidence;
-  const rawReason = parsed.reason;
 
   return {
-    is_passenger_request: isPassengerRequest,
-    confidence: clampConfidence(Number(rawConfidence ?? 0)),
-    reason: typeof rawReason === "string" ? rawReason.slice(0, 300) : "AI decision"
+    is_passenger_lead: isPassengerLead,
+    confidence: clampConfidence(Number(parsed.confidence ?? 0)),
+    reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 300) : "AI decision",
+    from_location: sanitizeLocationFromAI(parsed.from_location),
+    to_location: sanitizeLocationFromAI(parsed.to_location),
+    phone: asStringOrNull(parsed.phone),
+    passenger_count: asNumberOrNull(parsed.passenger_count),
+    time_hint: asStringOrNull(parsed.time_hint),
+    is_driver_ad: Boolean(parsed.is_driver_ad),
+    is_spam: Boolean(parsed.is_spam)
   };
 }
 
@@ -413,27 +455,26 @@ async function requestJson(providerName: AIProviderName, url: string, init: Requ
   }
 }
 
-export async function classifyWithGroq(text: string): Promise<AIResult> {
-  const apiKey = env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error("GROQ_API_KEY is not configured");
-  }
+async function analyzeWithOpenAICompatible(request: OpenAICompatibleRequest): Promise<AIResult> {
+  const modelInput = buildProviderInputText(request.text);
 
   const payload = {
-    model: env.GROQ_MODEL,
+    model: request.model,
     temperature: 0,
-    max_tokens: 180,
+    response_format: { type: "json_object" },
+    max_tokens: 320,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: `Message:\n${text}` }
+      { role: "user", content: `Message:\n${modelInput}` }
     ]
   };
 
-  const response = (await requestJson("groq", "https://api.groq.com/openai/v1/chat/completions", {
+  const response = (await requestJson(request.providerName, request.baseUrl, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
+      Authorization: `Bearer ${request.apiKey}`,
+      "Content-Type": "application/json",
+      ...(request.extraHeaders ?? {})
     },
     body: JSON.stringify(payload)
   })) as {
@@ -441,52 +482,209 @@ export async function classifyWithGroq(text: string): Promise<AIResult> {
   };
 
   const content = response.choices?.[0]?.message?.content;
-
   if (typeof content !== "string" || content.length === 0) {
-    throw new Error("Groq response content is empty");
+    throw new Error(`${request.providerName} response content is empty`);
   }
 
   return parseAIResult(content);
 }
 
-export async function classifyWithGemini(text: string): Promise<AIResult> {
-  const apiKey = env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured");
+class GeminiProvider implements LeadProviderAdapter {
+  readonly name = "gemini" as const;
+
+  isConfigured(): boolean {
+    return Boolean(env.GEMINI_API_KEY);
   }
 
-  const payload = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: `${SYSTEM_PROMPT}\n\nMessage:\n${text}` }]
-      }
-    ],
-    generationConfig: {
-      temperature: 0,
-      responseMimeType: "application/json"
+  async analyzeLead(text: string): Promise<AIResult> {
+    if (!env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured");
     }
-  };
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    const modelInput = buildProviderInputText(text);
 
-  const response = (await requestJson("gemini", endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  })) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
+    const payload = {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `${SYSTEM_PROMPT}\n\nMessage:\n${modelInput}` }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json"
+      }
+    };
 
-  const content = response.candidates?.[0]?.content?.parts?.[0]?.text;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent?key=${env.GEMINI_API_KEY}`;
 
-  if (typeof content !== "string" || content.length === 0) {
-    throw new Error("Gemini response content is empty");
+    const response = (await requestJson(this.name, endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    })) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+
+    const content = response.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof content !== "string" || content.length === 0) {
+      throw new Error("Gemini response content is empty");
+    }
+
+    return parseAIResult(content);
+  }
+}
+
+class GroqProvider implements LeadProviderAdapter {
+  readonly name = "groq" as const;
+
+  isConfigured(): boolean {
+    return Boolean(env.GROQ_API_KEY);
   }
 
-  return parseAIResult(content);
+  async analyzeLead(text: string): Promise<AIResult> {
+    if (!env.GROQ_API_KEY) {
+      throw new Error("GROQ_API_KEY is not configured");
+    }
+
+    return analyzeWithOpenAICompatible({
+      providerName: this.name,
+      apiKey: env.GROQ_API_KEY,
+      baseUrl: "https://api.groq.com/openai/v1/chat/completions",
+      model: env.GROQ_MODEL,
+      text
+    });
+  }
+}
+
+class CerebrasProvider implements LeadProviderAdapter {
+  readonly name = "cerebras" as const;
+
+  isConfigured(): boolean {
+    return Boolean(env.CEREBRAS_API_KEY);
+  }
+
+  async analyzeLead(text: string): Promise<AIResult> {
+    if (!env.CEREBRAS_API_KEY) {
+      throw new Error("CEREBRAS_API_KEY is not configured");
+    }
+
+    return analyzeWithOpenAICompatible({
+      providerName: this.name,
+      apiKey: env.CEREBRAS_API_KEY,
+      baseUrl: "https://api.cerebras.ai/v1/chat/completions",
+      model: env.CEREBRAS_MODEL,
+      text
+    });
+  }
+}
+
+class OpenRouterProvider implements LeadProviderAdapter {
+  readonly name = "openrouter" as const;
+
+  isConfigured(): boolean {
+    return Boolean(env.OPENROUTER_API_KEY);
+  }
+
+  async analyzeLead(text: string): Promise<AIResult> {
+    if (!env.OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (env.OPENROUTER_SITE_URL) {
+      extraHeaders["HTTP-Referer"] = env.OPENROUTER_SITE_URL;
+    }
+
+    if (env.OPENROUTER_APP_NAME) {
+      extraHeaders["X-Title"] = env.OPENROUTER_APP_NAME;
+    }
+
+    return analyzeWithOpenAICompatible({
+      providerName: this.name,
+      apiKey: env.OPENROUTER_API_KEY,
+      baseUrl: "https://openrouter.ai/api/v1/chat/completions",
+      model: env.OPENROUTER_MODEL,
+      text,
+      extraHeaders
+    });
+  }
+}
+
+class CloudflareProvider implements LeadProviderAdapter {
+  readonly name = "cloudflare" as const;
+
+  isConfigured(): boolean {
+    return Boolean(env.CLOUDFLARE_API_TOKEN && env.CLOUDFLARE_ACCOUNT_ID);
+  }
+
+  async analyzeLead(text: string): Promise<AIResult> {
+    if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) {
+      throw new Error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required for Cloudflare provider");
+    }
+
+    return analyzeWithOpenAICompatible({
+      providerName: this.name,
+      apiKey: env.CLOUDFLARE_API_TOKEN,
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`,
+      model: env.CLOUDFLARE_MODEL,
+      text
+    });
+  }
+}
+
+const providerAdapters: Record<AIProviderName, LeadProviderAdapter> = {
+  gemini: new GeminiProvider(),
+  groq: new GroqProvider(),
+  cerebras: new CerebrasProvider(),
+  openrouter: new OpenRouterProvider(),
+  cloudflare: new CloudflareProvider()
+};
+
+const providers: Record<AIProviderName, ProviderState> = {
+  gemini: { name: "gemini", status: "active", disabledUntil: null, reason: null },
+  groq: { name: "groq", status: "active", disabledUntil: null, reason: null },
+  cerebras: { name: "cerebras", status: "active", disabledUntil: null, reason: null },
+  openrouter: { name: "openrouter", status: "active", disabledUntil: null, reason: null },
+  cloudflare: { name: "cloudflare", status: "active", disabledUntil: null, reason: null }
+};
+
+function refreshProviderState(providerName: AIProviderName): void {
+  const provider = providers[providerName];
+  if (provider.status !== "cooldown") {
+    return;
+  }
+
+  if (!provider.disabledUntil || Date.now() >= provider.disabledUntil) {
+    provider.status = "active";
+    provider.disabledUntil = null;
+    provider.reason = null;
+    logger.info({ provider: providerName }, "Provider cooldown finished, provider is active again");
+  }
+}
+
+function isProviderConfigured(providerName: AIProviderName): boolean {
+  return providerAdapters[providerName].isConfigured();
+}
+
+function isProviderAvailable(providerName: AIProviderName): boolean {
+  refreshProviderState(providerName);
+  return isProviderConfigured(providerName) && providers[providerName].status === "active";
+}
+
+function getErrorSummary(error: unknown): string {
+  if (error instanceof AIProviderHttpError) {
+    const body = error.responseBody.slice(0, 250);
+    return `HTTP ${error.status}: ${body || error.message}`;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 function toProviderSnapshot(providerName: AIProviderName): ProviderStatusSnapshot {
@@ -497,13 +695,13 @@ function toProviderSnapshot(providerName: AIProviderName): ProviderStatusSnapsho
     name: provider.name,
     status: provider.status,
     disabledUntil: provider.disabledUntil,
-    keyConfigured: Boolean(provider.apiKey),
+    keyConfigured: isProviderConfigured(providerName),
     reason: provider.reason
   };
 }
 
 export function getProviderStatusSnapshot(): ProviderStatusSnapshot[] {
-  return PROVIDER_PRIORITY.map((providerName) => toProviderSnapshot(providerName));
+  return ALL_AI_PROVIDERS.map((providerName) => toProviderSnapshot(providerName));
 }
 
 export function isRateLimitError(error: unknown): boolean {
@@ -556,7 +754,7 @@ export function disableProvider(providerName: AIProviderName, ms: number, reason
 }
 
 export function getAvailableProvider(): AIProviderName | null {
-  for (const providerName of PROVIDER_PRIORITY) {
+  for (const providerName of env.AI_PROVIDER_ORDER) {
     if (isProviderAvailable(providerName)) {
       return providerName;
     }
@@ -574,50 +772,68 @@ function cooldownMsFromError(error: unknown): number {
 }
 
 async function classifyWithProvider(providerName: AIProviderName, text: string): Promise<AIResult> {
-  if (providerName === "groq") {
-    return classifyWithGroq(text);
-  }
-
-  return classifyWithGemini(text);
+  return providerAdapters[providerName].analyzeLead(text);
 }
 
 export async function classifyMessage(text: string): Promise<MessageClassification> {
   const normalizedText = normalizeText(text);
 
-  for (const providerName of PROVIDER_PRIORITY) {
-    if (!isProviderConfigured(providerName)) {
-      continue;
-    }
-
-    if (!isProviderAvailable(providerName)) {
-      continue;
-    }
-
-    try {
-      logger.info({ provider: providerName }, "Classifier provider selected");
-      const aiResult = await classifyWithProvider(providerName, text);
-
-      return {
-        is_passenger_request: aiResult.is_passenger_request,
-        confidence: clampConfidence(aiResult.confidence),
-        reason: aiResult.reason,
-        provider: providerName,
-        normalizedText,
-        providerStatuses: getProviderStatusSnapshot()
-      };
-    } catch (error) {
-      if (isRateLimitError(error) || isTemporaryError(error)) {
-        disableProvider(providerName, cooldownMsFromError(error), getErrorSummary(error));
+  if (env.AI_ENABLED) {
+    for (const providerName of env.AI_PROVIDER_ORDER) {
+      if (!isProviderConfigured(providerName)) {
+        logger.debug({ provider: providerName }, "Provider skipped because credentials are not configured");
         continue;
       }
 
-      logger.warn(
-        {
-          provider: providerName,
-          error: getErrorSummary(error)
-        },
-        "Provider failed, trying next provider"
-      );
+      if (!isProviderAvailable(providerName)) {
+        continue;
+      }
+
+      for (let attempt = 0; attempt <= env.AI_MAX_RETRIES; attempt += 1) {
+        try {
+          logger.info({ provider: providerName, attempt: attempt + 1 }, "Classifier provider selected");
+          const aiResult = await classifyWithProvider(providerName, text);
+
+          return {
+            is_passenger_request: aiResult.is_passenger_lead,
+            confidence: clampConfidence(aiResult.confidence),
+            reason: aiResult.reason,
+            provider: providerName,
+            normalizedText,
+            providerStatuses: getProviderStatusSnapshot(),
+            isDriverAd: aiResult.is_driver_ad,
+            isSpam: aiResult.is_spam,
+            fromLocation: aiResult.from_location,
+            toLocation: aiResult.to_location,
+            phone: aiResult.phone,
+            passengerCount: aiResult.passenger_count,
+            timeHint: aiResult.time_hint
+          };
+        } catch (error) {
+          const canRetry = attempt < env.AI_MAX_RETRIES;
+
+          if (isRateLimitError(error) || isTemporaryError(error)) {
+            if (canRetry) {
+              continue;
+            }
+
+            disableProvider(providerName, cooldownMsFromError(error), getErrorSummary(error));
+            break;
+          }
+
+          if (canRetry) {
+            continue;
+          }
+
+          logger.warn(
+            {
+              provider: providerName,
+              error: getErrorSummary(error)
+            },
+            "Provider failed, trying next provider"
+          );
+        }
+      }
     }
   }
 
@@ -630,7 +846,14 @@ export async function classifyMessage(text: string): Promise<MessageClassificati
     provider: "keyword",
     normalizedText,
     keywordScore: fallback.score,
-    providerStatuses: getProviderStatusSnapshot()
+    providerStatuses: getProviderStatusSnapshot(),
+    isDriverAd: false,
+    isSpam: false,
+    fromLocation: null,
+    toLocation: null,
+    phone: null,
+    passengerCount: null,
+    timeHint: null
   };
 }
 
@@ -639,7 +862,7 @@ export async function classifyLead(rawText: string): Promise<LeadClassification>
 
   return {
     isLead: result.is_passenger_request,
-    isSpam: !result.is_passenger_request && result.reason.includes("spam="),
+    isSpam: result.isSpam,
     score: result.keywordScore ?? Math.round(result.confidence * 10),
     normalizedText: result.normalizedText,
     matchedKeywords: [],

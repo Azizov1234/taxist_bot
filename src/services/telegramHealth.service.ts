@@ -1,4 +1,4 @@
-﻿import type { Api, RawApi } from "grammy";
+import type { Api, RawApi } from "grammy";
 import { env } from "../config/env.js";
 
 export interface ChatAccessCheck {
@@ -39,11 +39,16 @@ async function checkSingleChat(api: Api<RawApi>, chatId: number): Promise<ChatAc
 }
 
 export async function checkConfiguredChats(api: Api<RawApi>): Promise<{ passenger: ChatAccessCheck; driver: ChatAccessCheck }> {
-  const [passenger, driver] = await Promise.all([
-    checkSingleChat(api, env.PASSENGERS_CHAT_ID),
-    checkSingleChat(api, env.DRIVERS_CHAT_ID)
-  ]);
+  const [firstPassengerChatId] = env.PASSENGER_CHAT_IDS;
+  if (firstPassengerChatId === undefined) {
+    throw new Error("PASSENGER_CHAT_IDS is empty");
+  }
 
-  return { passenger, driver };
+  const [passenger, driver] = await Promise.all([checkSingleChat(api, firstPassengerChatId), checkSingleChat(api, env.DRIVER_CHAT_ID)]);
+
+  return {
+    passenger,
+    driver
+  };
 }
 

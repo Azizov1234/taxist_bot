@@ -1,4 +1,4 @@
-﻿import type { Context } from "grammy";
+import type { Context } from "grammy";
 import { env } from "../config/env.js";
 
 export function isAdmin(ctx: Context): boolean {

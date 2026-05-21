@@ -1,4 +1,4 @@
-const CLEAN_TAIL_REGEX = /\b(kerak|borish|ketish|ketadi|ketaman|boradi|boraman|yo'lovchi|yolovchi|yulovchi|taksi|taxi|mashina|moshina)\b/giu;
+const CLEAN_TAIL_REGEX = /\b(kerak|kere|edi|borish|ketish|ketadi|ketaman|boradi|boraman|yo'lovchi|yolovchi|yulovchi|taksi|taxi|mashina|moshina)\b/giu;
 const NON_PLACE_WORD_REGEX = /\b(ertaga|ertalab|bugun|kecha|indin|soat|larda|larida|taxminan)\b/giu;
 
 const ROUTE_INTENT_REGEX = /\b(taxi|taksi|mashina|moshina|yo'lovchi|yolovchi|yulovchi|ketaman|ketamiz|ketadi|ketish|ketadigan|boraman|boramiz|boradi|borish|olib ket|ob ket|joy bormi|nechida|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438|\u043a\u0435\u0442\u0430\u043c\u0430\u043d|\u043a\u0435\u0442\u0430\u043c\u0438\u0437|\u043a\u0435\u0442\u0430\u0434\u0438|\u043a\u0435\u0442\u0438\u0448|\u0431\u043e\u0440\u0438\u0448|\u043a\u0435\u0440\u0430\u043a)\b/iu;

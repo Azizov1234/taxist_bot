@@ -1,6 +1,9 @@
-node_modules
-dist
 .env
 .env.local
+node_modules/
+dist/
 coverage
 .prisma
+*.session
+*.session-journal
+*.log

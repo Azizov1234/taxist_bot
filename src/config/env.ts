@@ -1,4 +1,4 @@
-﻿import dotenv from "dotenv";
+import dotenv from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -22,7 +22,29 @@ function emptyToUndefined(value: unknown): unknown {
   return raw.length === 0 ? undefined : raw;
 }
 
-const chatIdSchema = z.preprocess((value) => {
+function parseBoolean(value: unknown): unknown {
+  const sanitized = emptyToUndefined(value);
+  if (sanitized === undefined) {
+    return undefined;
+  }
+
+  if (typeof sanitized === "boolean") {
+    return sanitized;
+  }
+
+  const lowered = String(sanitized).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(lowered)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(lowered)) {
+    return false;
+  }
+
+  return sanitized;
+}
+
+function parseNumber(value: unknown): unknown {
   const sanitized = emptyToUndefined(value);
   if (sanitized === undefined) {
     return undefined;
@@ -30,45 +52,65 @@ const chatIdSchema = z.preprocess((value) => {
 
   const parsed = Number(sanitized);
   return Number.isFinite(parsed) ? parsed : sanitized;
-}, z.number().int().refine((value) => Math.abs(value) >= 1, "Telegram ID must be a non-zero integer"));
+}
 
-const optionalChatIdSchema = z.preprocess((value) => {
-  const sanitized = emptyToUndefined(value);
-  if (sanitized === undefined) {
-    return undefined;
-  }
-
-  const parsed = Number(sanitized);
-  return Number.isFinite(parsed) ? parsed : sanitized;
-}, z.number().int().refine((value) => Math.abs(value) >= 1, "Telegram ID must be a non-zero integer").optional());
-
-const optionalNumberSchema = z.preprocess((value) => {
-  const sanitized = emptyToUndefined(value);
-  if (sanitized === undefined) {
-    return undefined;
-  }
-
-  const parsed = Number(sanitized);
-  return Number.isFinite(parsed) ? parsed : sanitized;
-}, z.number().optional());
-
+const optionalNumberSchema = z.preprocess((value) => parseNumber(value), z.number().optional());
 const optionalStringSchema = z.preprocess((value) => emptyToUndefined(value), z.string().optional());
+const optionalBooleanSchema = z.preprocess((value) => parseBoolean(value), z.boolean().optional());
+
+const optionalChatIdSchema = z.preprocess(
+  (value) => parseNumber(value),
+  z
+    .number()
+    .int()
+    .refine((chatId) => Math.abs(chatId) >= 1, "Telegram ID must be a non-zero integer")
+    .optional()
+);
+
+const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
+const runtimeModeSchema = z.enum(["userbot", "legacy"]);
+const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
+
+export type AIProviderName = z.infer<typeof aiProviderNameSchema>;
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  TELEGRAM_BOT_TOKEN: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "TELEGRAM_BOT_TOKEN is required")),
-  PASSENGERS_CHAT_ID: chatIdSchema,
-  DRIVERS_CHAT_ID: chatIdSchema,
+  LOG_LEVEL: z.preprocess((value) => emptyToUndefined(value), logLevelSchema.optional()),
+  TELEGRAM_MODE: z.preprocess((value) => emptyToUndefined(value), runtimeModeSchema.optional()),
+  TELEGRAM_API_ID: optionalNumberSchema,
+  TELEGRAM_API_HASH: optionalStringSchema,
+  TELEGRAM_STRING_SESSION: z.preprocess((value) => (value === undefined ? "" : String(value).trim()), z.string()),
+  TELEGRAM_BOT_TOKEN: optionalStringSchema,
+  PASSENGER_CHAT_IDS: optionalStringSchema,
+  PASSENGERS_CHAT_ID: optionalChatIdSchema,
+  DRIVER_CHAT_ID: optionalChatIdSchema,
+  DRIVERS_CHAT_ID: optionalChatIdSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
   LOG_CHANNEL_ID: optionalChatIdSchema,
   DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
-  GROQ_API_KEY: optionalStringSchema,
-  GEMINI_API_KEY: optionalStringSchema,
+  AI_ENABLED: optionalBooleanSchema,
+  AI_PROVIDER_ORDER: optionalStringSchema,
+  AI_MIN_CONFIDENCE: optionalNumberSchema,
   MIN_CONFIDENCE: optionalNumberSchema,
   AI_COOLDOWN_MINUTES: optionalNumberSchema,
   AI_TIMEOUT_MS: optionalNumberSchema,
+  AI_MAX_RETRIES: optionalNumberSchema,
+  GEMINI_API_KEY: optionalStringSchema,
+  GEMINI_MODEL: optionalStringSchema,
+  GROQ_API_KEY: optionalStringSchema,
   GROQ_MODEL: optionalStringSchema,
-  GEMINI_MODEL: optionalStringSchema
+  CEREBRAS_API_KEY: optionalStringSchema,
+  CEREBRAS_MODEL: optionalStringSchema,
+  OPENROUTER_API_KEY: optionalStringSchema,
+  OPENROUTER_MODEL: optionalStringSchema,
+  OPENROUTER_SITE_URL: optionalStringSchema,
+  OPENROUTER_APP_NAME: optionalStringSchema,
+  CLOUDFLARE_API_TOKEN: optionalStringSchema,
+  CLOUDFLARE_ACCOUNT_ID: optionalStringSchema,
+  CLOUDFLARE_MODEL: optionalStringSchema,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN: optionalBooleanSchema,
+  SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
+  DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -82,12 +124,95 @@ if (!parsed.success) {
   throw new Error(`Invalid environment variables: ${details}`);
 }
 
-const minConfidence = parsed.data.MIN_CONFIDENCE ?? 0.7;
+const envData = parsed.data;
+const isGetIdsMode = process.argv.some((arg) => arg.includes("get-ids"));
+
+function parseChatIdList(rawValue: string | undefined): number[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  return rawValue
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && Number.isInteger(value) && Math.abs(value) >= 1);
+}
+
+function parseProviderOrder(rawValue: string | undefined): AIProviderName[] {
+  const values = (rawValue ?? "gemini,groq,cerebras,openrouter,cloudflare")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  const parsedValues = values
+    .map((value) => aiProviderNameSchema.safeParse(value))
+    .filter((result): result is { success: true; data: AIProviderName } => result.success)
+    .map((result) => result.data);
+
+  return [...new Set(parsedValues)];
+}
+
+function hasProviderCredentials(provider: AIProviderName): boolean {
+  if (provider === "gemini") {
+    return Boolean(envData.GEMINI_API_KEY);
+  }
+
+  if (provider === "groq") {
+    return Boolean(envData.GROQ_API_KEY);
+  }
+
+  if (provider === "cerebras") {
+    return Boolean(envData.CEREBRAS_API_KEY);
+  }
+
+  if (provider === "openrouter") {
+    return Boolean(envData.OPENROUTER_API_KEY);
+  }
+
+  return Boolean(envData.CLOUDFLARE_API_TOKEN && envData.CLOUDFLARE_ACCOUNT_ID);
+}
+
+const passengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
+if (passengerChatIds.length === 0 && parsed.data.PASSENGERS_CHAT_ID !== undefined) {
+  passengerChatIds.push(parsed.data.PASSENGERS_CHAT_ID);
+}
+
+if (passengerChatIds.length === 0 && !isGetIdsMode) {
+  throw new Error("Invalid environment variables: PASSENGER_CHAT_IDS (or PASSENGERS_CHAT_ID) is required");
+}
+
+const driverChatId = parsed.data.DRIVER_CHAT_ID ?? parsed.data.DRIVERS_CHAT_ID ?? (isGetIdsMode ? 0 : undefined);
+if (driverChatId === undefined) {
+  throw new Error("Invalid environment variables: DRIVER_CHAT_ID (or DRIVERS_CHAT_ID) is required");
+}
+
+if (parsed.data.ADMIN_TELEGRAM_ID === undefined && !isGetIdsMode) {
+  throw new Error("Invalid environment variables: ADMIN_TELEGRAM_ID is required");
+}
+
+const runtimeMode = parsed.data.TELEGRAM_MODE ?? "userbot";
+if (runtimeMode === "userbot" && (parsed.data.TELEGRAM_API_ID === undefined || !parsed.data.TELEGRAM_API_HASH)) {
+  throw new Error("Invalid environment variables: TELEGRAM_API_ID and TELEGRAM_API_HASH are required for userbot mode");
+}
+
+if (runtimeMode === "legacy" && !parsed.data.TELEGRAM_BOT_TOKEN) {
+  throw new Error("Invalid environment variables: TELEGRAM_BOT_TOKEN is required for legacy mode");
+}
+
+const aiEnabled = parsed.data.AI_ENABLED ?? true;
+const minConfidence = parsed.data.AI_MIN_CONFIDENCE ?? parsed.data.MIN_CONFIDENCE ?? 0.65;
 const aiCooldownMinutes = parsed.data.AI_COOLDOWN_MINUTES ?? 10;
 const aiTimeoutMs = parsed.data.AI_TIMEOUT_MS ?? 15_000;
+const aiMaxRetries = Math.max(0, Math.round(parsed.data.AI_MAX_RETRIES ?? 1));
+const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
+const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
+const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
+const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
 
 if (minConfidence < 0 || minConfidence > 1) {
-  throw new Error("Invalid environment variables: MIN_CONFIDENCE must be between 0 and 1");
+  throw new Error("Invalid environment variables: AI_MIN_CONFIDENCE (or MIN_CONFIDENCE) must be between 0 and 1");
 }
 
 if (aiCooldownMinutes <= 0) {
@@ -98,22 +223,54 @@ if (aiTimeoutMs <= 0) {
   throw new Error("Invalid environment variables: AI_TIMEOUT_MS must be greater than 0");
 }
 
+if (duplicateWindowMinutes <= 0) {
+  throw new Error("Invalid environment variables: DUPLICATE_WINDOW_MINUTES must be greater than 0");
+}
+
+if (providerOrder.length === 0) {
+  throw new Error("Invalid environment variables: AI_PROVIDER_ORDER must include at least one valid provider");
+}
+
 export const env = {
   NODE_ENV: parsed.data.NODE_ENV,
+  LOG_LEVEL: parsed.data.LOG_LEVEL ?? "info",
+  TELEGRAM_MODE: runtimeMode,
+  TELEGRAM_API_ID: parsed.data.TELEGRAM_API_ID ?? 0,
+  TELEGRAM_API_HASH: parsed.data.TELEGRAM_API_HASH ?? "",
+  TELEGRAM_STRING_SESSION: parsed.data.TELEGRAM_STRING_SESSION,
   TELEGRAM_BOT_TOKEN: parsed.data.TELEGRAM_BOT_TOKEN,
-  PASSENGERS_CHAT_ID: parsed.data.PASSENGERS_CHAT_ID,
-  DRIVERS_CHAT_ID: parsed.data.DRIVERS_CHAT_ID,
+  PASSENGER_CHAT_IDS: passengerChatIds,
+  PASSENGERS_CHAT_ID: passengerChatIds[0] ?? 0,
+  DRIVER_CHAT_ID: driverChatId,
+  DRIVERS_CHAT_ID: driverChatId,
   ADMIN_TELEGRAM_ID: parsed.data.ADMIN_TELEGRAM_ID,
   LOG_CHANNEL_ID: parsed.data.LOG_CHANNEL_ID,
   DATABASE_URL: parsed.data.DATABASE_URL,
-  GROQ_API_KEY: parsed.data.GROQ_API_KEY,
-  GEMINI_API_KEY: parsed.data.GEMINI_API_KEY,
+  AI_ENABLED: aiEnabled,
+  AI_PROVIDER_ORDER: providerOrder,
+  AI_CONFIGURED_PROVIDERS: aiConfiguredProviders,
+  AI_HAS_CONFIGURED_PROVIDER: aiHasConfiguredProvider,
+  AI_MIN_CONFIDENCE: minConfidence,
   MIN_CONFIDENCE: minConfidence,
   AI_COOLDOWN_MINUTES: aiCooldownMinutes,
   AI_TIMEOUT_MS: Math.round(aiTimeoutMs),
-  GROQ_MODEL: parsed.data.GROQ_MODEL ?? "llama-3.1-8b-instant",
-  GEMINI_MODEL: parsed.data.GEMINI_MODEL ?? "gemini-2.5-flash"
+  AI_MAX_RETRIES: aiMaxRetries,
+  GEMINI_API_KEY: parsed.data.GEMINI_API_KEY,
+  GEMINI_MODEL: parsed.data.GEMINI_MODEL ?? "gemini-2.5-flash",
+  GROQ_API_KEY: parsed.data.GROQ_API_KEY,
+  GROQ_MODEL: parsed.data.GROQ_MODEL ?? "llama-3.3-70b-versatile",
+  CEREBRAS_API_KEY: parsed.data.CEREBRAS_API_KEY,
+  CEREBRAS_MODEL: parsed.data.CEREBRAS_MODEL ?? "gpt-oss-120b",
+  OPENROUTER_API_KEY: parsed.data.OPENROUTER_API_KEY,
+  OPENROUTER_MODEL: parsed.data.OPENROUTER_MODEL ?? "google/gemini-2.5-flash",
+  OPENROUTER_SITE_URL: parsed.data.OPENROUTER_SITE_URL,
+  OPENROUTER_APP_NAME: parsed.data.OPENROUTER_APP_NAME ?? "taxi-lead-userbot",
+  CLOUDFLARE_API_TOKEN: parsed.data.CLOUDFLARE_API_TOKEN,
+  CLOUDFLARE_ACCOUNT_ID: parsed.data.CLOUDFLARE_ACCOUNT_ID,
+  CLOUDFLARE_MODEL: parsed.data.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.1-8b-instruct",
+  DELETE_SOURCE_MESSAGE_IF_ADMIN: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN ?? true,
+  SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
+  DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)
 };
 
 export type AppEnv = typeof env;
-

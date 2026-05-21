@@ -1,4 +1,4 @@
-﻿import { KeywordType, type Keyword } from "@prisma/client";
+import { KeywordType, type Keyword } from "@prisma/client";
 import { prisma } from "../prisma/client.js";
 import { DEFAULT_KEYWORDS } from "../config/defaultKeywords.js";
 import { normalizeUzbekText } from "../utils/text.js";

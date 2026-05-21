@@ -9,9 +9,12 @@ datasource db {
 
 enum LeadStatus {
   NEW
-  FORWARDED
+  SENT
+  DELETED_FROM_SOURCE
+  NOT_DELETED_NO_PERMISSION
   IGNORED
   DUPLICATE
+  ERROR
 }
 
 enum KeywordType {
@@ -31,12 +34,25 @@ model Lead {
   id                 Int        @id @default(autoincrement())
   sourceChatId       String
   sourceMessageId    Int
+  sourceChatTitle    String?
+  senderId           String?
+  senderFullName     String?
+  senderUsername     String?
   userId             String
   fullName           String
   username           String?
   phone              String?
   originalText       String
   normalizedText     String
+  fromLocation       String?
+  toLocation         String?
+  passengerCount     Int?
+  timeHint           String?
+  confidence         Float?
+  isDriverAd         Boolean    @default(false)
+  isSpam             Boolean    @default(false)
+  driverMessageId    Int?
+  errorMessage       String?
   detectedRoute      String?
   status             LeadStatus @default(NEW)
   forwardedMessageId Int?
@@ -44,6 +60,7 @@ model Lead {
   updatedAt          DateTime   @updatedAt
 
   @@unique([sourceChatId, sourceMessageId])
+  @@index([senderId, normalizedText, createdAt])
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }

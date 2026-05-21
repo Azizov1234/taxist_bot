@@ -1,145 +1,80 @@
-﻿# Taxi Lead Bot (Node.js + TypeScript + grammY + Prisma)
+# Taxi Userbot (Node.js + TypeScript + GramJS + Prisma)
 
-Production-ready Telegram bot: yo'lovchilar guruhidagi taxi/yolovchi so'rovlarini aniqlaydi va haydovchilar chatiga yuboradi.
+Bu loyiha eski grammY bot kodini saqlagan holda userbot rejimini default qiladi.
 
 ## Texnologiya
 - Node.js + TypeScript
-- grammY
+- GramJS (`telegram`)
+- Legacy mode uchun grammY (o'chirilmagan)
 - PostgreSQL + Prisma
 - dotenv + zod env validation
-- Logging: pino + `BotLog` jadvali
+- pino logger + `BotLog` jadvali
 
-## Papkalar
-- `src/bot/` - bot command va handlerlar
-- `src/services/` - biznes logika (lead, keyword, logger)
-- `src/config/` - env va default keywordlar
-- `src/utils/` - normalize, phone, route util funksiyalar
-- `src/prisma/` - prisma client
-- `prisma/` - schema va seed
+## Tez Boshlash
+1. `my.telegram.org` ga kiring va `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` oling.
+2. `.env.example` dan `.env` yarating.
+3. `npm install`.
+4. `npx prisma generate`.
+5. `npx prisma migrate dev`.
+6. `npm run dev`.
+7. Birinchi login paytida telefon raqam, Telegram code, 2FA password kiriting.
+8. Konsolda chiqqan `TELEGRAM_STRING_SESSION` ni `.env` ga yozing.
+9. `npm run get:ids` orqali chat IDlarni oling.
+10. Userbot source guruhda admin bo'lsa xabar o'chira oladi, admin bo'lmasa o'chirmaydi.
+11. `.env`, `TELEGRAM_STRING_SESSION`, `TELEGRAM_API_HASH` ni hech kimga bermang.
 
-## ENV
-`.env` ochib quyidagini to'ldiring:
+## Muhim
+- `TELEGRAM_API_ID` va `TELEGRAM_API_HASH` BotFather'dan emas, faqat `my.telegram.org` dan olinadi.
+- `.env` va session ma'lumotlarini GitHubga push qilmang.
+- API keylar faqat `.env` ichida bo'lsin, kodga yozilmang.
+- API key/token/session/hash qiymatlari logga chiqmasligi kerak.
+- Agar API key skrinshot/chat/GitHub'da ko'rinib qolsa, darhol regenerate qiling.
+- `AI_PROVIDER_ORDER` orqali provider tartibini istalgan payt o'zgartirish mumkin.
 
-```env
-TELEGRAM_BOT_TOKEN=
-PASSENGERS_CHAT_ID=-100...
-DRIVERS_CHAT_ID=-100...
-ADMIN_TELEGRAM_ID=
-LOG_CHANNEL_ID=
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/taxi_bot?schema=public"
+## ENV namunasi
+Asosiy maydonlar `.env.example` ichida tayyor.
 
-GROQ_API_KEY=
-GEMINI_API_KEY=
+## Scriptlar
+- `npm run dev` - default userbot (`src/main.ts`)
+- `npm run build` - TypeScript build
+- `npm run start` - `dist/main.js` ishga tushirish
+- `npm run get:ids` - dialoglar ro'yxati (`chat title => chat id`)
+- `npm run prisma:generate`
+- `npm run prisma:migrate`
+- `npm run prisma:deploy`
 
-MIN_CONFIDENCE=0.70
-AI_COOLDOWN_MINUTES=10
-```
+## Ishlash Rejimlari
+- Default: userbot mode (`TELEGRAM_MODE` bo'sh yoki `userbot`)
+- Legacy: eski grammY botni ishlatish uchun `.env` ga:
+  - `TELEGRAM_MODE=legacy`
+  - `TELEGRAM_BOT_TOKEN=...`
 
-Eslatma:
-- `.env` - real ishlaydigan konfiguratsiya.
-- `.env.example` - faqat namuna/shablon, bot undan o'qimaydi.
+## Asosiy Flow
+1. App start
+2. ENV validation
+3. Prisma connect
+4. GramJS userbot connect
+5. `PASSENGER_CHAT_IDS` parse
+6. Source chatlardan yangi xabarlarni tinglash
+7. Text/caption bo'lmasa skip
+8. Duplicate tekshirish
+9. Normalize
+10. Rule-based analyzer
+11. AI analyzer (provider fallback)
+12. AI xato bo'lsa rule-based fallback
+13. Lead bo'lsa driver chatga formatlangan yuborish
+14. `DELETE_SOURCE_MESSAGE_IF_ADMIN=true` bo'lsa source xabarni o'chirishga urinish
+15. Permission bo'lmasa crash qilmasdan log yozish
+16. Lead statusni DB ga yozish
 
-`LOG_CHANNEL_ID` ixtiyoriy.
+## Admin commandlar (faqat `ADMIN_TELEGRAM_ID`)
+Userbot commandlari:
+- `.status`
+- `.stats`
+- `.test <text>`
+- `.sources`
+- `.pause`
+- `.resume`
+- `.last 10`
 
-## 1) BotFather'dan token olish
-1. Telegram'da `@BotFather` ga kiring.
-2. `/newbot` bosing.
-3. Bot nomi va username bering.
-4. Berilgan tokenni `TELEGRAM_BOT_TOKEN`ga yozing.
-
-## 2) /setprivacy -> Disable qilish
-1. `@BotFather` -> `/setprivacy`
-2. Botni tanlang.
-3. `Disable` qiling.
-
-Bu bot guruhdagi oddiy xabarlarni ham ko'rishi uchun kerak.
-
-## 3) Botni yo'lovchilar guruhiga admin qilish
-- Bot `PASSENGERS_CHAT_ID` guruhida bo'lishi kerak.
-- Xabarlarni o'qish imkoniga ega bo'lsin.
-
-## 4) Botni haydovchilar kanal/guruhiga admin qilish
-- Bot `DRIVERS_CHAT_ID` chatiga xabar yubora olishi kerak.
-- Kanal bo'lsa, post qilish huquqi bo'lsin.
-
-## 5) Group/Channel ID olish
-Variantlar:
-1. Botga `/getid` yuborib chat IDni oling (admin uchun).
-2. `@userinfobot` yoki shunga o'xshash botlardan ID olish.
-
-Eslatma: group/channel ID odatda `-100...` formatida bo'ladi.
-
-## 6) .env to'ldirish
-`.env.example` ni `.env` ga nusxa qilib barcha qiymatlarni kiriting.
-
-## 7) npm install
-```bash
-npm install
-```
-
-## 8) Prisma migrate
-```bash
-npx prisma generate
-npx prisma migrate dev --name init
-npm run db:seed
-```
-
-## 9) Development run
-```bash
-npm run dev
-```
-
-## 10) Production deploy
-1. Serverga Node.js 20+ va PostgreSQL tayyorlang.
-2. Kodni serverga chiqaring.
-3. `.env` ni to'ldiring.
-4. Quyidagini ishga tushiring:
-
-```bash
-npm ci
-npm run build
-npx prisma migrate deploy
-npm run db:seed
-npm start
-```
-
-5. PM2 yoki systemd bilan processni doimiy qiling.
-
-PM2 misol:
-```bash
-npm i -g pm2
-pm2 start dist/index.js --name taxi-lead-bot
-pm2 save
-pm2 startup
-```
-
-## Admin buyruqlari
-- `/start` - bot ishlayotganini ko'rsatadi
-- `/status` - umumiy status
-- `/stats` - kunlik/haftalik statistika
-- `/keywords` - active keywordlar
-- `/addkeyword taxi_soz` - keyword qo'shish
-- `/removekeyword taxi_soz` - keywordni inactive qilish
-- `/test matn` - lead aniqlash testi
-- `/getid` - chat va user ID
-
-Faqat `ADMIN_TELEGRAM_ID` foydalanuvchi bu buyruqlarni ishlata oladi.
-
-## Lead aniqlash logikasi
-- Faqat `PASSENGERS_CHAT_ID` ichidagi xabarlar analiz qilinadi.
-- Matn normalize qilinadi (`o'`, `oвЂ`, `oК»` -> `o`; `g'`, `gвЂ`, `gК»` -> `g`).
-- AI provider ketma-ketligi: `Groq -> Gemini -> keyword fallback`.
-- `429`, timeout yoki `5xx` xatoda provider avtomatik cooldown holatiga o'tadi va keyingi provider ishlaydi.
-- Hamma provider fail bo'lsa keyword fallback ishlaydi.
-- Pattern asosida ham aniqlaydi (`...dan ...ga`, `...ga ketish kerak`, `joy bormi` va boshqalar).
-- Telefon raqamlarni ajratadi va formatlaydi (`+998 90 123 45 67`).
-- Route topishga harakat qiladi.
-- Duplicate xabarlarni qayta yubormaydi.
-- Spam/reklama xabarlarni filter qiladi.
-
-## Muhim cheklov
-Bot foydalanuvchining yashirin telefon raqamini Telegram'dan ola olmaydi. Faqat xabar ichida yozilgan raqamni ajratadi.
-
-## Eslatma
-Docker bu loyihada majburiy emas va qo'shilmagan.
-
+Legacy grammY `/` commandlari ham kodda saqlangan.

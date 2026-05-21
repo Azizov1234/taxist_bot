@@ -1,4 +1,4 @@
-﻿export const PASSENGER_KEYWORDS_LATIN = [
+export const PASSENGER_KEYWORDS_LATIN = [
   "taxi",
   "taksi",
   "takis",
@@ -16,7 +16,9 @@
   "taksi bormi",
   "taxi bormi",
   "ketish kerak",
+  "ketish kere",
   "borish kerak",
+  "borish kere",
   "olib ketadigan",
   "ob ketadigan",
   "olib ketadigan bormi",
@@ -31,7 +33,12 @@
   "yolovchi",
   "yulovchi",
   "poputchik",
+  "poputchik bormi",
   "poputka",
+  "yolovchi bor",
+  "yulovchi bor",
+  "1 kishi bor",
+  "2 ta odam bor",
   "joy bormi",
   "bosh joy bormi",
   "bo'sh joy bormi",
@@ -41,7 +48,11 @@
   "hozir ketish kerak",
   "kechga ketish kerak",
   "manzilga borishim kerak",
-  "shu yerga borishim kerak"
+  "shu yerga borishim kerak",
+  "shirindan gulistonga",
+  "bekoboddan shiringa",
+  "gulistonga ketish kerak",
+  "toshkentga borish kerak"
 ] as const;
 
 export const PASSENGER_KEYWORDS_CYRILLIC = [
@@ -56,7 +67,9 @@ export const PASSENGER_KEYWORDS_CYRILLIC = [
   "авто керак",
   "машина борми",
   "кетиш керак",
+  "кетиш кере",
   "бориш керак",
+  "бориш кере",
   "олиб кетадиган",
   "олиб кетадиган борми",
   "кетаман",
@@ -68,7 +81,9 @@ export const PASSENGER_KEYWORDS_CYRILLIC = [
   "йўловчи",
   "йуловчи",
   "попутчик",
+  "попутчик борми",
   "попутка",
+  "йуловчи бор",
   "жой борми",
   "бўш жой борми",
   "буш жой борми",
@@ -78,7 +93,11 @@ export const PASSENGER_KEYWORDS_CYRILLIC = [
   "ҳозир кетиш керак",
   "хозир кетиш керак",
   "манзилга боришим керак",
-  "шу ерга боришим керак"
+  "шу ерга боришим керак",
+  "шириндан гулистонга",
+  "бекободдан ширинга",
+  "гулистонга кетиш керак",
+  "тошкентга бориш керак"
 ] as const;
 
 export const ROUTE_KEYWORDS = [
@@ -146,9 +165,6 @@ export const DRIVER_AD_NEGATIVE_KEYWORDS = [
   "1 ta joy bor",
   "2 ta joy bor",
   "3 ta joy bor",
-  "1 kishi bor",
-  "2 kishi bor",
-  "3 kishi bor",
   "joy bor",
   "mashina bor",
   "mashinam bor",
@@ -172,6 +188,14 @@ export const DRIVER_AD_NEGATIVE_KEYWORDS = [
   "ketadigan bo'lsa",
   "taxi xizmati",
   "taksi xizmati",
+  "24/7 xizmat",
+  "arzon narx",
+  "murojaat uchun",
+  "tel:",
+  "kanalga obuna bo'ling",
+  "yetkazib beramiz",
+  "yuk tashish",
+  "dostavka",
   "xizmat ko'rsatamiz",
   "taksilarim",
   "taksislarim",

@@ -1,4 +1,4 @@
-﻿import { Bot, type Context } from "grammy";
+import { Bot, type Context } from "grammy";
 import { env } from "../config/env.js";
 import { addKeyword, listActiveKeywords, removeKeyword } from "../services/keyword.service.js";
 import { classifyMessage } from "../services/leadClassifier.service.js";
@@ -48,9 +48,12 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       [
         "Bot status:",
         `Jami yozuv: ${status.total}`,
-        `Forward qilingan: ${status.forwarded}`,
+        `Sent: ${status.sent}`,
+        `Source'dan o'chirilgan: ${status.deletedFromSource}`,
+        `O'chirilmadi (permission): ${status.notDeletedNoPermission}`,
         `Ignored: ${status.ignored}`,
-        `Duplicate: ${status.duplicate}`
+        `Duplicate: ${status.duplicate}`,
+        `Error: ${status.error}`
       ].join("\n")
     );
   });
@@ -67,12 +70,16 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         "Statistika:",
         "",
         `Bugun lead: ${stats.today.leads}`,
-        `Bugun forward: ${stats.today.forwarded}`,
+        `Bugun sent: ${stats.today.sent}`,
+        `Bugun source delete: ${stats.today.deleted}`,
         `Bugun duplicate: ${stats.today.duplicates}`,
+        `Bugun error: ${stats.today.errors}`,
         "",
         `Hafta lead: ${stats.week.leads}`,
-        `Hafta forward: ${stats.week.forwarded}`,
-        `Hafta duplicate: ${stats.week.duplicates}`
+        `Hafta sent: ${stats.week.sent}`,
+        `Hafta source delete: ${stats.week.deleted}`,
+        `Hafta duplicate: ${stats.week.duplicates}`,
+        `Hafta error: ${stats.week.errors}`
       ].join("\n")
     );
   });

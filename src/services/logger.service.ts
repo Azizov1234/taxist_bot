@@ -6,7 +6,7 @@ import { prisma } from "../prisma/client.js";
 
 export const logger = pino({
   name: "taxi-lead-bot",
-  level: env.NODE_ENV === "production" ? "info" : "debug"
+  level: env.LOG_LEVEL
 });
 
 type MetaValue = string | number | boolean | null | undefined | MetaRecord | MetaValue[];
