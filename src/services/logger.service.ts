@@ -39,7 +39,7 @@ export async function saveBotLog(level: LogLevel, message: string, meta?: MetaRe
       data
     });
   } catch (error) {
-    logger.error({ error, message, meta: safeMeta }, "Failed to persist bot log");
+    logger.error({ err: error, message, meta: safeMeta }, "Failed to persist bot log");
   }
 }
 
@@ -54,7 +54,7 @@ export async function writeWarn(message: string, meta?: MetaRecord): Promise<voi
 }
 
 export async function writeError(message: string, error?: unknown, meta?: MetaRecord): Promise<void> {
-  logger.error({ error, meta }, message);
+  logger.error({ err: error, meta }, message);
 
   await saveBotLog(LogLevel.ERROR, message, {
     ...meta,

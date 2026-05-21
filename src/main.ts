@@ -7,6 +7,11 @@ import { createAndConnectUserbotClient } from "./userbot/gramjs.client.js";
 import { startUserbotListener } from "./userbot/userbot.listener.js";
 import type { TelegramClient } from "telegram";
 import { getPeerId } from "telegram/Utils.js";
+import { open, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+const INSTANCE_LOCK_PATH = join(tmpdir(), "taxi-lead-bot.userbot.lock");
 
 function getEntityTitle(entity: any): string {
   if (!entity) {
@@ -84,53 +89,138 @@ async function validateSourceChats(client: TelegramClient): Promise<void> {
   });
 }
 
-async function startUserbotMode(): Promise<void> {
-  await prisma.$connect();
-  await seedDefaultKeywords();
-
-  if (env.AI_ENABLED && !env.AI_HAS_CONFIGURED_PROVIDER) {
-    await writeWarn("AI enabled but no provider credentials configured. Falling back to rule-based analyzer only.", {
-      providerOrder: env.AI_PROVIDER_ORDER
-    });
+function parsePidFromLock(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    const pid = Number(parsed.pid);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
   }
+}
 
-  const client = await createAndConnectUserbotClient();
-  await validateSourceChats(client);
-  const me = await client.getMe();
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  await writeInfo("Userbot mode started", {
-    meId: me.id?.toString(),
-    username: (me as any).username ?? null,
-    sourceChatIds: env.PASSENGER_CHAT_IDS,
-    driverChatId: env.DRIVER_CHAT_ID
-  });
+async function readExistingLockPid(): Promise<number | null> {
+  try {
+    const lockRaw = await readFile(INSTANCE_LOCK_PATH, "utf8");
+    return parsePidFromLock(lockRaw);
+  } catch {
+    return null;
+  }
+}
 
-  const shutdown = async (signal: string): Promise<void> => {
-    await writeInfo("Shutdown signal received", { signal });
+async function acquireInstanceLock(): Promise<() => Promise<void>> {
+  let staleLockRemoved = false;
 
+  while (true) {
     try {
-      await client.disconnect();
-    } catch {
-      // ignore
+      const handle = await open(INSTANCE_LOCK_PATH, "wx");
+      await handle.writeFile(
+        JSON.stringify({
+          pid: process.pid,
+          createdAt: new Date().toISOString()
+        })
+      );
+
+      return async () => {
+        try {
+          await handle.close();
+        } finally {
+          await rm(INSTANCE_LOCK_PATH, { force: true });
+        }
+      };
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+
+      const existingPid = await readExistingLockPid();
+      if (existingPid && isProcessRunning(existingPid)) {
+        throw new Error(`Another bot instance is already running (PID: ${existingPid}). Stop it before starting a new one.`);
+      }
+
+      if (staleLockRemoved) {
+        throw new Error("Could not acquire instance lock after removing stale lock file.");
+      }
+
+      await rm(INSTANCE_LOCK_PATH, { force: true });
+      staleLockRemoved = true;
+    }
+  }
+}
+
+async function startUserbotMode(): Promise<void> {
+  const releaseLock = await acquireInstanceLock();
+  let lockReleased = false;
+  const safeReleaseLock = async (): Promise<void> => {
+    if (lockReleased) {
+      return;
     }
 
-    await prisma.$disconnect();
-    process.exit(0);
+    lockReleased = true;
+    await releaseLock();
   };
 
-  process.once("SIGINT", () => {
-    void shutdown("SIGINT");
-  });
+  try {
+    await prisma.$connect();
+    await seedDefaultKeywords();
 
-  process.once("SIGTERM", () => {
-    void shutdown("SIGTERM");
-  });
+    if (env.AI_ENABLED && !env.AI_HAS_CONFIGURED_PROVIDER) {
+      await writeWarn("AI enabled but no provider credentials configured. Falling back to rule-based analyzer only.", {
+        providerOrder: env.AI_PROVIDER_ORDER
+      });
+    }
 
-  await startUserbotListener(client);
+    const client = await createAndConnectUserbotClient();
+    await validateSourceChats(client);
+    const me = await client.getMe();
 
-  await new Promise<void>(() => {
-    // keep process alive for update handlers
-  });
+    await writeInfo("Userbot mode started", {
+      meId: me.id?.toString(),
+      username: (me as any).username ?? null,
+      sourceChatIds: env.PASSENGER_CHAT_IDS,
+      driverChatId: env.DRIVER_CHAT_ID
+    });
+
+    const shutdown = async (signal: string): Promise<void> => {
+      await writeInfo("Shutdown signal received", { signal });
+
+      try {
+        await client.disconnect();
+      } catch {
+        // ignore
+      }
+
+      await prisma.$disconnect();
+      await safeReleaseLock();
+      process.exit(0);
+    };
+
+    process.once("SIGINT", () => {
+      void shutdown("SIGINT");
+    });
+
+    process.once("SIGTERM", () => {
+      void shutdown("SIGTERM");
+    });
+
+    await startUserbotListener(client);
+
+    await new Promise<void>(() => {
+      // keep process alive for update handlers
+    });
+  } catch (error) {
+    await safeReleaseLock();
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {
