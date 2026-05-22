@@ -24,6 +24,27 @@ enum KeywordType {
   EXTRA
 }
 
+enum KeywordCategory {
+  PASSENGER
+  DRIVER
+  CARGO
+  SPAM
+  AMBIGUOUS
+}
+
+enum KeywordLanguage {
+  LATIN
+  CYRILLIC
+  RUSSIAN
+  MIXED
+}
+
+enum KeywordMatchType {
+  EXACT
+  PHRASE
+  REGEX
+}
+
 enum LogLevel {
   INFO
   WARN
@@ -72,6 +93,26 @@ model Keyword {
   isActive  Boolean     @default(true)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+}
+
+model KeywordDictionary {
+  id         Int              @id @default(autoincrement())
+  phrase     String
+  normalized String
+  category   KeywordCategory
+  weight     Int              @default(1)
+  language   KeywordLanguage  @default(MIXED)
+  matchType  KeywordMatchType @default(PHRASE)
+  source     String?
+  isActive   Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([normalized, category])
+  @@index([category, isActive])
+  @@index([normalized])
+  @@index([weight])
+  @@index([matchType])
 }
 
 model BotLog {

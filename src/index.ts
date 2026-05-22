@@ -3,6 +3,7 @@ import { createBot } from "./bot/index.js";
 import { ENV_FILE_LOADED, ENV_FILE_PATH, env } from "./config/env.js";
 import { prisma } from "./prisma/client.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
+import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
 import { sendLogToChannel, writeError, writeInfo, writeWarn } from "./services/logger.service.js";
 import { checkConfiguredChats } from "./services/telegramHealth.service.js";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,8 @@ function isPollingConflictError(error: unknown): boolean {
 export async function startLegacyBot(): Promise<void> {
   await prisma.$connect();
   await seedDefaultKeywords();
+  await loadKeywordDictionaryCache();
+  await writeInfo("Keyword dictionary cache loaded", getKeywordCacheStats());
 
   const bot = createBot();
 

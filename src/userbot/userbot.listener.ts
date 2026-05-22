@@ -5,6 +5,14 @@ import { LeadStatus } from "@prisma/client";
 import { env } from "../config/env.js";
 import { classifyMessage, getProviderStatusSnapshot } from "../services/leadClassifier.service.js";
 import {
+  addKeywordEntry,
+  getKeywordCacheStats,
+  getKeywordCountByCategory,
+  listKeywordsByCategory,
+  mapInputCategory,
+  reloadKeywordDictionaryCache
+} from "../services/keywordDictionary.service.js";
+import {
   getLastLeads,
   getStatsSnapshot,
   getStatusSnapshot,
@@ -29,6 +37,25 @@ function toNumericId(value: string): number | null {
   }
 
   return parsed;
+}
+
+function toNumberId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.trunc(parsed);
+    }
+  }
+
+  return null;
 }
 
 function formatEntityName(entity: any): string {
@@ -99,6 +126,71 @@ async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text
   });
 }
 
+async function probeSourceChats(client: TelegramClient): Promise<string> {
+  const lines: string[] = [];
+  lines.push(`Configured source chats: ${env.PASSENGER_CHAT_IDS.join(", ")}`);
+
+  for (const chatId of env.PASSENGER_CHAT_IDS) {
+    try {
+      const entity = await client.getEntity(chatId);
+      const title = formatEntityName(entity) || String(chatId);
+      const lastMessages = await client.getMessages(chatId, { limit: 1 });
+      const lastMessage = Array.isArray(lastMessages) ? (lastMessages[0] ?? null) : null;
+      const lastMessageId = lastMessage?.id ?? "-";
+      const lastMessageDate = lastMessage?.date ? getMessageDate(lastMessage.date).toISOString() : "-";
+      lines.push(`OK | ${chatId} | ${title} | lastMessageId=${lastMessageId} | lastMessageDate=${lastMessageDate}`);
+    } catch (error) {
+      lines.push(`FAIL | ${chatId} | ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function resolveSourceChat(event: NewMessageEvent): Promise<{ sourceChatId: string; sourceChatIdNumber: number; chat: any | null }> {
+  const candidateIds: number[] = [];
+
+  const peerId = event.message.peerId;
+  if (peerId) {
+    const peerRaw = getPeerId(peerId, true);
+    const peerNumber = toNumberId(peerRaw);
+    if (peerNumber !== null) {
+      candidateIds.push(peerNumber);
+    }
+  }
+
+  let chat: any | null = null;
+  try {
+    chat = await event.getChat();
+  } catch {
+    chat = null;
+  }
+
+  if (chat) {
+    try {
+      const chatRaw = getPeerId(chat, true);
+      const chatNumber = toNumberId(chatRaw);
+      if (chatNumber !== null) {
+        candidateIds.push(chatNumber);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const uniqueCandidateIds = [...new Set(candidateIds)];
+  const matchedId = uniqueCandidateIds.find((id) => env.PASSENGER_CHAT_IDS.includes(id));
+  if (matchedId === undefined) {
+    throw new Error(`Source chat not matched. candidates=[${uniqueCandidateIds.join(", ")}]`);
+  }
+
+  return {
+    sourceChatId: String(matchedId),
+    sourceChatIdNumber: matchedId,
+    chat
+  };
+}
+
 async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent, commandText: string, state: ListenerState): Promise<boolean> {
   const senderId = event.message.senderId?.toString();
   if (!senderId || senderId !== String(env.ADMIN_TELEGRAM_ID ?? "")) {
@@ -131,6 +223,12 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
       event,
       [`Source chatlar: ${env.PASSENGER_CHAT_IDS.join(", ")}`, `Driver chat: ${env.DRIVER_CHAT_ID}`, `Pauza: ${state.paused ? "ha" : "yo'q"}`].join("\n")
     );
+    return true;
+  }
+
+  if (command === ".source_probe") {
+    const report = await probeSourceChats(client);
+    await replyToEvent(client, event, report);
     return true;
   }
 
@@ -197,9 +295,14 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
       client,
       event,
       [
+        `Category: ${result.category}`,
         `Passenger lead: ${result.is_passenger_request ? "ha" : "yo'q"}`,
         `Confidence: ${result.confidence}`,
         `Provider: ${result.provider}`,
+        `Passenger score: ${result.passengerScore}`,
+        `Driver score: ${result.driverScore}`,
+        `Cargo score: ${result.cargoScore}`,
+        `Spam score: ${result.spamScore}`,
         `Driver ad: ${result.isDriverAd ? "ha" : "yo'q"}`,
         `Spam: ${result.isSpam ? "ha" : "yo'q"}`,
         `From: ${result.fromLocation ?? "-"}`,
@@ -207,10 +310,85 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
         `Phone: ${result.phone ?? "-"}`,
         `Passenger count: ${result.passengerCount ?? "-"}`,
         `Time hint: ${result.timeHint ?? "-"}`,
+        `Matched: ${result.matchedKeywords.slice(0, 12).join(", ") || "-"}`,
         `Reason: ${result.reason}`
       ].join("\n")
     );
 
+    return true;
+  }
+
+  if (command === ".keyword_count") {
+    const counts = await getKeywordCountByCategory();
+    const cacheStats = getKeywordCacheStats();
+    await replyToEvent(
+      client,
+      event,
+      [
+        "Keyword counts:",
+        `PASSENGER: ${counts.PASSENGER}`,
+        `DRIVER: ${counts.DRIVER}`,
+        `CARGO: ${counts.CARGO}`,
+        `SPAM: ${counts.SPAM}`,
+        `AMBIGUOUS: ${counts.AMBIGUOUS}`,
+        `Cache total: ${cacheStats.total}`
+      ].join("\n")
+    );
+    return true;
+  }
+
+  if (command === ".reload_keywords") {
+    await reloadKeywordDictionaryCache();
+    const cacheStats = getKeywordCacheStats();
+    await replyToEvent(
+      client,
+      event,
+      `Keyword cache reloaded. total=${cacheStats.total}, loadedAt=${new Date(cacheStats.loadedAt).toISOString()}`
+    );
+    return true;
+  }
+
+  if (command === ".keywords") {
+    const category = mapInputCategory(arg);
+    if (!category || category === "AMBIGUOUS") {
+      await replyToEvent(client, event, "Foydalanish: .keywords passenger|driver|cargo|spam");
+      return true;
+    }
+
+    const rows = await listKeywordsByCategory(category, 50);
+    const lines = rows.map((row) => `${row.weight} | ${row.phrase}`);
+    await replyToEvent(client, event, [`${category} keywords (${rows.length}):`, ...lines].join("\n"));
+    return true;
+  }
+
+  if (command === ".add_keyword") {
+    const match = commandText.match(/^\.add_keyword\s+(\w+)\s+"([^"]+)"(?:\s+(\d+))?$/i);
+    if (!match) {
+      await replyToEvent(client, event, 'Foydalanish: .add_keyword passenger "ketish kerak" 8');
+      return true;
+    }
+
+    const category = mapInputCategory(match[1] ?? "");
+    if (!category) {
+      await replyToEvent(client, event, "Category noto'g'ri. passenger|driver|cargo|spam|ambiguous");
+      return true;
+    }
+
+    const phrase = match[2] ?? "";
+    const weight = Number(match[3] ?? "1");
+    const added = await addKeywordEntry({
+      category,
+      phrase,
+      weight,
+      source: "admin"
+    });
+
+    if (!added) {
+      await replyToEvent(client, event, "Keyword qo'shilmadi (bo'sh yoki noto'g'ri).");
+      return true;
+    }
+
+    await replyToEvent(client, event, `Saqlangan: [${added.category}] ${added.phrase} (w=${added.weight})`);
     return true;
   }
 
@@ -233,7 +411,11 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
     return true;
   }
 
-  await replyToEvent(client, event, "Mavjud commandlar: .status, .stats, .test <text>, .sources, .pause, .resume, .last <n>");
+  await replyToEvent(
+    client,
+    event,
+    "Mavjud commandlar: .status, .stats, .test <text>, .sources, .source_probe, .pause, .resume, .last <n>, .keywords <category>, .keyword_count, .add_keyword <category> \"phrase\" <weight>, .reload_keywords"
+  );
   return true;
 }
 
@@ -243,18 +425,22 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
     return null;
   }
 
-  const peerId = event.message.peerId;
-  if (!peerId) {
+  let resolvedSource:
+    | {
+        sourceChatId: string;
+        sourceChatIdNumber: number;
+        chat: any | null;
+      }
+    | null = null;
+
+  try {
+    resolvedSource = await resolveSourceChat(event);
+  } catch {
     return null;
   }
 
-  const sourceChatId = getPeerId(peerId, true);
-  const sourceChatIdNumber = toNumericId(sourceChatId);
-  if (sourceChatIdNumber === null || !env.PASSENGER_CHAT_IDS.includes(sourceChatIdNumber)) {
-    return null;
-  }
-
-  const chat = await event.getChat();
+  const sourceChatId = resolvedSource.sourceChatId;
+  const chat = resolvedSource.chat ?? (await event.getChat().catch(() => null));
   const sender = await event.message.getSender();
   const senderIdRaw = event.message.senderId?.toString();
 
@@ -280,6 +466,8 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
 
 export async function startUserbotListener(client: TelegramClient): Promise<void> {
   const state: ListenerState = { paused: false };
+  const listenerStartedAtMs = Date.now();
+  const ignoredSourceLogCache = new Set<number>();
 
   const handler = async (event: NewMessageEvent): Promise<void> => {
     try {
@@ -293,8 +481,28 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return;
       }
 
+      const eventDateMs = getMessageDate(event.message.date).getTime();
+      if (eventDateMs < listenerStartedAtMs - 5_000) {
+        return;
+      }
+
       const payload = await buildUnifiedPayload(event);
       if (!payload) {
+        const peerId = event.message.peerId;
+        if (peerId) {
+          try {
+            const candidatePeer = toNumberId(getPeerId(peerId, true));
+            if (candidatePeer !== null && !ignoredSourceLogCache.has(candidatePeer)) {
+              ignoredSourceLogCache.add(candidatePeer);
+              await writeInfo("Message ignored: source chat not in configured list", {
+                candidatePeerId: candidatePeer,
+                configuredSourceChats: env.PASSENGER_CHAT_IDS
+              });
+            }
+          } catch {
+            // ignore
+          }
+        }
         return;
       }
 
@@ -377,7 +585,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   client.addEventHandler(
     handler,
     new NewMessage({
-      chats: env.PASSENGER_CHAT_IDS
+      incoming: true
     })
   );
 

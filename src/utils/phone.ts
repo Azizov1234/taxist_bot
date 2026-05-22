@@ -1,10 +1,15 @@
-const PHONE_REGEX = /(?:\+?998[\s-]?)?(?:\(?\d{2}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2})/g;
+const PHONE_REGEX = /(?<!\d)(?:\+?998[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2})(?!\d)/g;
+const CANDIDATE_CHUNK_REGEX = /[\d()+\s.-]{9,24}/g;
 
 function normalizePhoneDigits(raw: string): string | null {
   const digits = raw.replace(/\D/g, "");
 
   if (digits.length === 9) {
     return `998${digits}`;
+  }
+
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return `998${digits.slice(1)}`;
   }
 
   if (digits.length === 12 && digits.startsWith("998")) {
@@ -33,13 +38,18 @@ export function formatUzbekPhone(e164Digits: string): string {
 export function extractPhone(text: string): string | null {
   const matches = text.match(PHONE_REGEX);
 
-  if (!matches || matches.length === 0) {
-    return null;
-  }
-
-  for (const match of matches) {
+  for (const match of matches ?? []) {
     const normalized = normalizePhoneDigits(match);
 
+    if (normalized) {
+      return formatUzbekPhone(normalized);
+    }
+  }
+
+  // Fallback: grab digit-heavy chunks and normalize them.
+  const chunks = text.match(CANDIDATE_CHUNK_REGEX) ?? [];
+  for (const chunk of chunks) {
+    const normalized = normalizePhoneDigits(chunk);
     if (normalized) {
       return formatUzbekPhone(normalized);
     }

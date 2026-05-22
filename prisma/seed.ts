@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { KeywordType, PrismaClient } from "@prisma/client";
 import { DEFAULT_KEYWORDS } from "../src/config/defaultKeywords.js";
 import { normalizeUzbekText } from "../src/utils/text.js";
+import { seedKeywordDictionaryWithClient } from "./seed-keywords.js";
 
 dotenv.config({ override: true });
 
@@ -24,8 +25,15 @@ async function main(): Promise<void> {
   await upsertMany(DEFAULT_KEYWORDS.cyrillic, KeywordType.CYRILLIC);
   await upsertMany(DEFAULT_KEYWORDS.route, KeywordType.ROUTE);
   await upsertMany(DEFAULT_KEYWORDS.extra, KeywordType.EXTRA);
+  const dictionarySeed = await seedKeywordDictionaryWithClient(prisma);
 
   console.log("Seed completed successfully");
+  console.log(`passenger keywords count: ${dictionarySeed.counts.passenger}`);
+  console.log(`driver keywords count: ${dictionarySeed.counts.driver}`);
+  console.log(`cargo keywords count: ${dictionarySeed.counts.cargo}`);
+  console.log(`spam keywords count: ${dictionarySeed.counts.spam}`);
+  console.log(`ambiguous keywords count: ${dictionarySeed.counts.ambiguous}`);
+  console.log(`total inserted/upserted: ${dictionarySeed.total} (inserted=${dictionarySeed.inserted}, updated=${dictionarySeed.updated})`);
 }
 
 main()

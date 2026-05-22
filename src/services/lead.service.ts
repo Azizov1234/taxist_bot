@@ -1,4 +1,4 @@
-import { LeadStatus, Prisma } from "@prisma/client";
+﻿import { LeadStatus, Prisma } from "@prisma/client";
 import type { Context } from "grammy";
 import { DRIVER_AD_NEGATIVE_KEYWORDS } from "../config/defaultKeywords.js";
 import { env } from "../config/env.js";
@@ -40,17 +40,33 @@ export interface UnifiedMessageActions {
 
 const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
 const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
-  { id: "olib_ketaman", pattern: /\b(?:olib|ob)\s*ket(?:aman|amiz)\b/iu },
+  { id: "olib_ketaman", pattern: /\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b/iu },
   { id: "odam_olaman", pattern: /\bodam\s*(?:olaman|olamiz)\b/iu },
   { id: "yolovchi_olaman", pattern: /\byo'?lovchi\s*(?:olaman|olamiz)\b/iu },
   { id: "mijoz_olaman", pattern: /\bmijoz\s*(?:olaman|olamiz)\b/iu },
+  { id: "odam_pochta_bolsa_olamiz", pattern: /\b(?:odam|pochta|yuk)\b.{0,20}\bbo'?l(?:sa|sayam?)\b.{0,20}\b(?:olaman|olamiz)\b/iu },
+  {
+    id: "yuramiz_odam_pochta",
+    pattern: /\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz|jo'?nayman|jo'?naymiz)\b.{0,40}\b(?:odam|pochta|yuk)\b.{0,20}\b(?:olaman|olamiz)\b/iu
+  },
+  {
+    id: "taksi_bor_olib_ketamz",
+    pattern:
+      /\b(?:taxi|taksi)\b.{0,30}\bbor\b.{0,30}\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b(?:.{0,20}\bbo'?lsa\b)?(?:.{0,30}\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b)/iu
+  },
   { id: "joy_bor", pattern: /\b(?:bo'?sh|bosh)?\s*joy(?:lar)?\s*bor\b/iu },
   { id: "mashina_bor", pattern: /\b(?:mashina|moshina|avto)\s*bor\b/iu },
+  { id: "avto_model_ad", pattern: /\b(?:avto|mashina|moshina)\b.{0,12}\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  { id: "private_dm_ad", pattern: /\b(?:lichka|lichkaga|lichkadan|lichku)\b/iu },
   { id: "ketadiganlar_bolsa", pattern: /\bketadiganlar?\s*bo'?lsa\b/iu },
-  { id: "reklama", pattern: /\b(reklama|доставка|dostavka|xizmat ko'?rsatamiz|taxi xizmati|такси хизмати)\b/iu },
-  { id: "ru_passenger_take", pattern: /\b(?:пассажир|мижоз|й[ўу]ловчи)\s*олам(?:ан|из)\b/iu },
-  { id: "ru_seat_available", pattern: /\b(?:б[ўу]ш\s*жой|жой)\s*бор\b/iu }
+  { id: "reklama", pattern: /\b(reklama|РґРѕСЃС‚Р°РІРєР°|dostavka|xizmat ko'?rsatamiz|taxi xizmati|С‚Р°РєСЃРё С…РёР·РјР°С‚Рё)\b/iu },
+  { id: "ru_passenger_take", pattern: /\b(?:РїР°СЃСЃР°Р¶РёСЂ|РјРёР¶РѕР·|Р№[СћСѓ]Р»РѕРІС‡Рё)\s*РѕР»Р°Рј(?:Р°РЅ|РёР·)\b/iu },
+  { id: "ru_seat_available", pattern: /\b(?:Р±[СћСѓ]С€\s*Р¶РѕР№|Р¶РѕР№)\s*Р±РѕСЂ\b/iu }
 ];
+const DRIVER_COMMERCIAL_VERB_REGEX =
+  /\b(?:olaman|olamiz|olamz|yuraman|yuramiz|yuramz|ketaman|ketamiz|ketamz|qatnayman|qatnaymiz|qatnaymz|chiqaman|chiqamiz|chiqamz|jo'?nayman|jo'?naymiz|jo'?naymz|yetkazib beraman|yetkazib beramiz|olib ketaman|olib ketamiz|olib ketamz|ob ketaman|ob ketamiz|ob ketamz)\b/iu;
+const DRIVER_COMMERCIAL_CONTEXT_REGEX =
+  /\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|moshina|taxi|taksi|kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu;
 const PRICE_QUERY_KEYWORDS_NORMALIZED = [
   "qancha",
   "qanchaga",
@@ -60,10 +76,10 @@ const PRICE_QUERY_KEYWORDS_NORMALIZED = [
   "necha pul",
   "narx",
   "narxi",
-  "сколько",
-  "цена",
-  "стоимость",
-  "скок",
+  "СЃРєРѕР»СЊРєРѕ",
+  "С†РµРЅР°",
+  "СЃС‚РѕРёРјРѕСЃС‚СЊ",
+  "СЃРєРѕРє",
   "skolko"
 ].map((keyword) => normalizeText(keyword));
 
@@ -72,14 +88,15 @@ const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
   /\b(?:kerak|kere|kerak edi|kere edi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
   /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|krk|kera)\b/iu,
   /\b(?:borish kerak|ketish kerak|borishim kerak|ketishim kerak|joy bormi|poputchik bormi|olib ketadigan bormi|ob ketadigan bormi)\b/iu,
-  /\b(?:такси|машина|мошина)\b.{0,24}\b(?:керак|кере|борми)\b/iu,
-  /\b(?:бориш керак|кетиш керак|йўловчи бор|йуловчи бор)\b/iu
+  /\b(?:С‚Р°РєСЃРё|РјР°С€РёРЅР°|РјРѕС€РёРЅР°)\b.{0,24}\b(?:РєРµСЂР°Рє|РєРµСЂРµ|Р±РѕСЂРјРё)\b/iu,
+  /\b(?:Р±РѕСЂРёС€ РєРµСЂР°Рє|РєРµС‚РёС€ РєРµСЂР°Рє|Р№СћР»РѕРІС‡Рё Р±РѕСЂ|Р№СѓР»РѕРІС‡Рё Р±РѕСЂ)\b/iu
 ];
+const PASSENGER_SOFT_SIGNAL_REGEX = /\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b/iu;
 
 const META_INSTRUCTION_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "nickname_or_username", pattern: /\b(?:nick\s*name|nickname|nikname|username)\b/iu },
   { id: "write_instruction", pattern: /\b(?:aniq\s+yoz(?:ing|ilar)?|yoz(?:ing|ilar)?\s+deb|qayerga\s+borish(?:ingiz|iz)ni\s+aniq\s+yoz)\b/iu },
-  { id: "ai_notice", pattern: /\b(?:sun[’'`]?iy|suniy)\s+intellekt\b/iu },
+  { id: "ai_notice", pattern: /\b(?:sun[вЂ™'`]?iy|suniy)\s+intellekt\b/iu },
   { id: "operator_notice", pattern: /\b(?:taksi(?:lar|chilar)(?:imiz)?|taksislar(?:imiz)?|ulab\s+beradi)\b/iu },
   { id: "admin_notice", pattern: /\b(?:qoidalar?|e'lon|elon)\b/iu }
 ];
@@ -141,8 +158,8 @@ function isGenericLocationToken(value: string | null): boolean {
     "qaerdan",
     "qaerda",
     "qayoqqa",
-    "куда",
-    "откуда",
+    "РєСѓРґР°",
+    "РѕС‚РєСѓРґР°",
     "where",
     "where to",
     "from where"
@@ -159,7 +176,7 @@ function sanitizeLocationValue(value: string | null): string | null {
 
 function isAmbiguousRouteOnlyMessage(normalizedText: string): boolean {
   const cleaned = normalizedText.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  return /^(qayerdan qayerga|qayerga qayerdan|qayerga|qayerdan|qayerda|qaerdan qaerga|qaerga|qaerdan|куда куда|откуда куда|куда|откуда|where to|from where)$/iu.test(cleaned);
+  return /^(qayerdan qayerga|qayerga qayerdan|qayerga|qayerdan|qayerda|qaerdan qaerga|qaerga|qaerdan|РєСѓРґР° РєСѓРґР°|РѕС‚РєСѓРґР° РєСѓРґР°|РєСѓРґР°|РѕС‚РєСѓРґР°|where to|from where)$/iu.test(cleaned);
 }
 
 function shorten(text: string, max = 300): string {
@@ -205,7 +222,7 @@ function extractTimeHint(text: string): string | null {
     return hourMatch[0];
   }
 
-  const words = ["hozir", "bugun", "ertalab", "kechqurun", "tunda", "ertaga", "сегодня", "завтра"];
+  const words = ["hozir", "bugun", "ertalab", "kechqurun", "tunda", "ertaga", "СЃРµРіРѕРґРЅСЏ", "Р·Р°РІС‚СЂР°"];
   const found = words.find((word) => normalized.includes(word));
 
   return found ?? null;
@@ -258,34 +275,23 @@ function buildDriverLeadSummary(params: {
   const usernameValue = params.senderUsername ? `@${params.senderUsername}` : "yo'q";
   const phoneValue = params.phone ?? "xabarda topilmadi";
   const sourceMessageLink = buildSourceMessageLink(params.sourceChatId, params.sourceMessageId, params.sourceChatUsername);
-  const hiddenIdentityNotice = params.hasHiddenSenderIdentity
-    ? "⚠️ Eslatma: foydalanuvchi profili maxfiy (username/raqam yo'q yoki yashirilgan)."
-    : null;
 
   return [
-    "🚕 Yangi yo'lovchi topildi",
+    "Yangi yo'lovchi topildi",
     "",
-    `👤 Ism: ${params.senderFullName}`,
-    `🔗 Username: ${usernameValue}`,
-    `🪪 Sender ID: ${params.senderId}`,
-    `📞 Telefon: ${phoneValue}`,
-    hiddenIdentityNotice,
+    `Ism: ${params.senderFullName}`,
+    `Username: ${usernameValue}`,
+    `Telefon: ${phoneValue}`,
     "",
-    `📍 Qayerdan: ${params.fromLocation ?? "aniqlanmadi"}`,
-    `🏁 Qayerga: ${params.toLocation ?? "aniqlanmadi"}`,
-    `👥 Odam soni: ${params.passengerCount ?? "aniqlanmadi"}`,
-    `🕒 Vaqt: ${params.timeHint ?? params.messageTime}`,
+    `Qayerdan: ${params.fromLocation ?? "aniqlanmadi"}`,
+    `Qayerga: ${params.toLocation ?? "aniqlanmadi"}`,
+    `Odam soni: ${params.passengerCount ?? "aniqlanmadi"}`,
+    `Vaqt: ${params.timeHint ?? params.messageTime}`,
     "",
-    `📌 Source: ${params.sourceChatTitle}`,
-    "",
-    "💬 Xabar:",
+    "Xabar:",
     shorten(params.originalMessage, 2500),
     "",
-    `🆔 Source message: ${params.sourceChatId}/${params.sourceMessageId}`,
-    `🔗 Source link: ${sourceMessageLink ?? "mavjud emas"}`,
-    `⚙️ Analiz: ${params.provider}`,
-    `🤖 Confidence: ${params.confidence.toFixed(2)}`,
-    `📊 Status: ${params.status}`
+    `Source link: ${sourceMessageLink ?? "mavjud emas"}`
   ].join("\n");
 }
 
@@ -477,11 +483,21 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const timeHint = classification.timeHint ?? timeHintFromRules;
 
   const aiOnlyDriverAd = classification.isDriverAd && driverAdHits.length === 0 && driverAdPatternHits.length === 0;
+  const hasCommercialVerb = DRIVER_COMMERCIAL_VERB_REGEX.test(originalText);
+  const hasCommercialContext = DRIVER_COMMERCIAL_CONTEXT_REGEX.test(classification.normalizedText);
+  const looksLikeDriverCommercial = hasCommercialVerb && (hasCommercialContext || Boolean(phone));
+  const categoryIsPassenger = classification.category === "PASSENGER_LEAD";
+  const categoryIsDriver = classification.category === "DRIVER_AD";
+  const categoryIsCargo = classification.category === "POSTAL_CARGO";
+  const categoryIsSpam = classification.category === "IGNORE_SPAM";
   const isDriverAd =
+    categoryIsDriver ||
     driverAdHits.length > 0 ||
     driverAdPatternHits.length > 0 ||
+    looksLikeDriverCommercial ||
     (classification.isDriverAd && !(aiOnlyDriverAd && strongPassengerIntent));
-  const isSpam = classification.isSpam || spamByRules;
+  const isSpam = categoryIsSpam || classification.isSpam || spamByRules;
+  const isCargo = categoryIsCargo;
   const isRouteFareInquiry = Boolean(routeFromRules) && priceQueryHits.length > 0;
   const isAmbiguousRouteOnly = isAmbiguousRouteOnlyMessage(classification.normalizedText);
   const hasRouteDetails = Boolean(routeFromRules) || Boolean(fromLocation) || Boolean(toLocation);
@@ -489,15 +505,22 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const isMetaInstructionMessage = metaInstructionHits.length >= 2 && !hasMinimumLeadDetails;
   const hasHiddenSenderIdentity = payload.senderId.startsWith("chat:") || (!payload.senderUsername && !phone);
   const hasHardPassengerSignal = keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules);
+  const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText);
 
-  const shouldSendByAI = classification.is_passenger_request && classification.confidence >= env.AI_MIN_CONFIDENCE;
+  const shouldSendByAI = categoryIsPassenger || (classification.is_passenger_request && classification.confidence >= env.AI_MIN_CONFIDENCE);
   const shouldSendByKeywordRescue =
     !shouldSendByAI &&
     keywordResult.score >= 2 &&
     (keywordResult.is_passenger_request || strongPassengerIntent || Boolean(routeFromRules) || Boolean(phone));
+  const shouldSendByRoutePassengerPattern =
+    !shouldSendByAI &&
+    !shouldSendByKeywordRescue &&
+    hasRouteDetails &&
+    (Boolean(passengerCount) || hasPassengerSoftSignal) &&
+    !isRouteFareInquiry;
   const shouldSendByRouteFareInquiry = !shouldSendByAI && !shouldSendByKeywordRescue && isRouteFareInquiry;
   const shouldSend =
-    (shouldSendByAI || shouldSendByKeywordRescue || shouldSendByRouteFareInquiry) &&
+    (shouldSendByAI || shouldSendByKeywordRescue || shouldSendByRoutePassengerPattern || shouldSendByRouteFareInquiry) &&
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
     !isDriverAd &&
@@ -507,6 +530,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     sourceChatId: payload.sourceChatId,
     sourceMessageId: payload.sourceMessageId,
     provider: classification.provider,
+    category: classification.category,
     confidence: classification.confidence,
     reason: classification.reason,
     keywordScore: keywordResult.score,
@@ -514,6 +538,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     driverAdPatternHits,
     isDriverAd,
     isSpam,
+    isCargo,
     isAmbiguousRouteOnly,
     metaInstructionHits,
     hasMinimumLeadDetails,
@@ -554,27 +579,6 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     }
   };
 
-  if (payload.isForwarded) {
-    await saveLeadWithStatus({
-      payload,
-      originalText,
-      normalizedText: classification.normalizedText,
-      detectedRoute: routeFromRules,
-      fromLocation,
-      toLocation,
-      phone,
-      passengerCount,
-      timeHint,
-      confidence: classification.confidence,
-      isDriverAd,
-      isSpam,
-      status: LeadStatus.IGNORED,
-      errorMessage: "Forwarded message ignored"
-    });
-
-    return { processed: false, reason: "Forwarded message ignored" };
-  }
-
   if (!hasHardPassengerSignal || !shouldSend) {
     await saveLeadWithStatus({
       payload,
@@ -592,6 +596,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       status: LeadStatus.IGNORED,
       errorMessage: isDriverAd
         ? "Driver ad detected"
+        : isCargo
+          ? "Cargo/postal message detected"
         : isSpam
           ? "Spam detected"
           : isAmbiguousRouteOnly
@@ -603,8 +609,16 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
               : "Classifier rejected"
     });
 
-    if (isDriverAd || isMetaInstructionMessage) {
-      await deleteFromSourceIfPossible(isDriverAd ? "Driver ad detected" : "Meta instruction message ignored");
+    if (isDriverAd || isCargo || isSpam || isMetaInstructionMessage) {
+      await deleteFromSourceIfPossible(
+        isDriverAd
+          ? "Driver ad detected"
+          : isCargo
+            ? "Cargo/postal message detected"
+            : isSpam
+              ? "Spam detected"
+              : "Meta instruction message ignored"
+      );
     }
 
     return {
@@ -948,6 +962,8 @@ export async function getLastLeads(limit = 10): Promise<
     };
   });
 }
+
+
 
 
 

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "start:dev": "tsx src/main.ts",
+    "doctor": "tsx scripts/doctor.ts",
     "build": "tsc",
     "start": "node dist/main.js",
     "lint": "tsc --noEmit",
@@ -13,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:keywords": "tsx prisma/seed-keywords.ts",
     "get:ids": "tsx scripts/get-ids.ts"
   },
   "dependencies": {

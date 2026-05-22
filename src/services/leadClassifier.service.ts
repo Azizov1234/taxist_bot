@@ -1,18 +1,15 @@
+﻿import { type AIProviderName, env } from "../config/env.js";
 import {
-  DRIVER_AD_NEGATIVE_KEYWORDS,
-  MOVEMENT_KEYWORDS,
-  PASSENGER_KEYWORDS_CYRILLIC,
-  PASSENGER_KEYWORDS_LATIN,
-  ROUTE_KEYWORDS,
-  SPAM_KEYWORDS
-} from "../config/defaultKeywords.js";
-import { type AIProviderName, env } from "../config/env.js";
+  analyzeByKeywordDictionary,
+  isRuleAmbiguous,
+  type DictionaryRuleResult,
+  type LeadCategory
+} from "./keywordDictionary.service.js";
 import { detectRoute } from "../utils/route.js";
-import { extractPhone } from "../utils/phone.js";
 import { normalizeUzbekText, stripExtraPunctuation } from "../utils/text.js";
 import { logger } from "./logger.service.js";
 
-export type ProviderName = AIProviderName | "keyword";
+export type ProviderName = AIProviderName | "keyword" | "rule";
 
 type ProviderStatus = "active" | "cooldown";
 
@@ -24,9 +21,15 @@ interface ProviderState {
 }
 
 interface AIResult {
+  category: LeadCategory;
   is_passenger_lead: boolean;
   confidence: number;
   reason: string;
+  passenger_score: number;
+  driver_score: number;
+  cargo_score: number;
+  spam_score: number;
+  matched_keywords: string[];
   from_location: string | null;
   to_location: string | null;
   phone: string | null;
@@ -60,12 +63,18 @@ export interface ProviderStatusSnapshot {
 }
 
 export interface MessageClassification {
+  category: LeadCategory;
   is_passenger_request: boolean;
   confidence: number;
   reason: string;
   provider: ProviderName;
   normalizedText: string;
   keywordScore?: number;
+  passengerScore: number;
+  driverScore: number;
+  cargoScore: number;
+  spamScore: number;
+  matchedKeywords: string[];
   providerStatuses: ProviderStatusSnapshot[];
   isDriverAd: boolean;
   isSpam: boolean;
@@ -97,34 +106,43 @@ const ALL_AI_PROVIDERS: AIProviderName[] = ["gemini", "groq", "cerebras", "openr
 const TEMPORARY_ERROR_CODES = new Set([500, 502, 503, 504]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-const SYSTEM_PROMPT = `Sen Telegram taxi guruhidagi xabarni analiz qilasan.
-Maqsad: xabar YO'LOVCHI taxi qidiryaptimi yoki yo'qmi aniqlash.
+const SYSTEM_PROMPT = `Sen Telegram taxi guruhidagi xabarni 4 kategoriyadan biriga ajratasan:
+1) PASSENGER_LEAD
+2) DRIVER_AD
+3) POSTAL_CARGO
+4) IGNORE_SPAM
 
-Faqat JSON qaytar. Hech qanday qo'shimcha matn qaytarma.
+Faqat JSON qaytar. Qo'shimcha matn qaytarma.
 
-Schema:
+Muhim qoidalar:
+- "joy bormi?" odatda PASSENGER_LEAD.
+- "bo'sh joy bor" odatda DRIVER_AD.
+- "1 kishi bor" odatda PASSENGER_LEAD.
+- "2 ta joy bor" odatda DRIVER_AD.
+- "ketish kerak" PASSENGER_LEAD.
+- "har kuni qatnaymiz" DRIVER_AD.
+- "murojaat uchun" ko'pincha DRIVER_AD yoki IGNORE_SPAM.
+- "pochta bor" POSTAL_CARGO.
+- "obuna bo'ling" IGNORE_SPAM.
+- Lotin, kirill, ruscha va aralash yozuvni tushun.
+- from_location/to_location topilmasa null bo'lsin.
+
+Strict JSON schema:
 {
-  "is_passenger_lead": true,
+  "category": "PASSENGER_LEAD",
   "confidence": 0.0,
-  "reason": "qisqa sabab",
+  "reason": "short reason",
+  "passenger_score": 0,
+  "driver_score": 0,
+  "cargo_score": 0,
+  "spam_score": 0,
+  "matched_keywords": [],
   "from_location": null,
   "to_location": null,
   "phone": null,
   "passenger_count": null,
-  "time_hint": null,
-  "is_driver_ad": false,
-  "is_spam": false
-}
-
-Qoidalar:
-- Odam taxi/taksi qidirayotgan bo'lsa: is_passenger_lead=true.
-- Odam borish/ketish niyatini yozsa: is_passenger_lead=true.
-- Driver reklama bo'lsa ("bo'sh joy bor", "odam olaman", "taxi xizmati"): is_passenger_lead=false, is_driver_ad=true.
-- Spam/reklama/link/kanalga chaqirish bo'lsa: is_spam=true.
-- Lotin, kirill, aralash yozuv, xato yozuvlarni tushun.
-- Agar matn faqat umumiy savol bo'lsa ("qayerdan qayerga", "qayerga?", "куда?") va yo'lovchi niyati aniq bo'lmasa: is_passenger_lead=false.
-- from_location/to_location maydonlariga savol so'zlarini yozma: "qayer", "qayerga", "qayerdan", "куда", "откуда". Bunday holatda null qaytar.
-- Aniqlanmagan maydonlar null bo'lsin.`;
+  "time_hint": null
+}`;
 
 const GENERIC_LOCATION_TOKENS = new Set([
   "qayer",
@@ -136,9 +154,9 @@ const GENERIC_LOCATION_TOKENS = new Set([
   "qaerdan",
   "qaerda",
   "qayoqqa",
-  "куда",
-  "откуда",
-  "где",
+  "РєСѓРґР°",
+  "РѕС‚РєСѓРґР°",
+  "РіРґРµ",
   "where",
   "where to",
   "from where"
@@ -190,10 +208,6 @@ class AIProviderNetworkError extends Error {
     this.name = "AIProviderNetworkError";
     this.provider = provider;
   }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function clampConfidence(value: number): number {
@@ -313,6 +327,31 @@ function asNumberOrNull(value: unknown): number | null {
   return Math.max(1, Math.round(parsed));
 }
 
+function parseCategory(value: unknown): LeadCategory {
+  if (typeof value !== "string") {
+    return "AMBIGUOUS";
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "PASSENGER_LEAD") {
+    return "PASSENGER_LEAD";
+  }
+
+  if (normalized === "DRIVER_AD") {
+    return "DRIVER_AD";
+  }
+
+  if (normalized === "POSTAL_CARGO") {
+    return "POSTAL_CARGO";
+  }
+
+  if (normalized === "IGNORE_SPAM") {
+    return "IGNORE_SPAM";
+  }
+
+  return "AMBIGUOUS";
+}
+
 function parseAIResult(raw: string): AIResult {
   const payload = extractJsonObject(raw);
   const parsed = JSON.parse(payload) as Record<string, unknown>;
@@ -325,63 +364,50 @@ function parseAIResult(raw: string): AIResult {
         ? rawDecision.trim().toLowerCase() === "true"
         : false;
 
+  const categoryFromField = parseCategory(parsed.category);
+  const derivedCategory =
+    categoryFromField !== "AMBIGUOUS"
+      ? categoryFromField
+      : Boolean(parsed.is_driver_ad)
+        ? "DRIVER_AD"
+        : Boolean(parsed.is_spam)
+          ? "IGNORE_SPAM"
+          : isPassengerLead
+            ? "PASSENGER_LEAD"
+            : "AMBIGUOUS";
+
   return {
+    category: derivedCategory,
     is_passenger_lead: isPassengerLead,
     confidence: clampConfidence(Number(parsed.confidence ?? 0)),
     reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 300) : "AI decision",
+    passenger_score: Number(parsed.passenger_score ?? (isPassengerLead ? 8 : 0)) || 0,
+    driver_score: Number(parsed.driver_score ?? (Boolean(parsed.is_driver_ad) ? 8 : 0)) || 0,
+    cargo_score: Number(parsed.cargo_score ?? 0) || 0,
+    spam_score: Number(parsed.spam_score ?? (Boolean(parsed.is_spam) ? 8 : 0)) || 0,
+    matched_keywords: Array.isArray(parsed.matched_keywords)
+      ? parsed.matched_keywords.filter((item): item is string => typeof item === "string").slice(0, 40)
+      : [],
     from_location: sanitizeLocationFromAI(parsed.from_location),
     to_location: sanitizeLocationFromAI(parsed.to_location),
     phone: asStringOrNull(parsed.phone),
     passenger_count: asNumberOrNull(parsed.passenger_count),
     time_hint: asStringOrNull(parsed.time_hint),
-    is_driver_ad: Boolean(parsed.is_driver_ad),
-    is_spam: Boolean(parsed.is_spam)
+    is_driver_ad: derivedCategory === "DRIVER_AD" || Boolean(parsed.is_driver_ad),
+    is_spam: derivedCategory === "IGNORE_SPAM" || Boolean(parsed.is_spam)
   };
-}
-
-function containsKeyword(normalizedText: string, normalizedKeyword: string): boolean {
-  if (!normalizedKeyword) {
-    return false;
-  }
-
-  const boundaryPattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(normalizedKeyword)}(?=$|[^\\p{L}\\p{N}])`, "iu");
-  return boundaryPattern.test(normalizedText);
-}
-
-function uniqueNormalized(values: readonly string[]): string[] {
-  const normalized = values
-    .map((value) => normalizeText(value))
-    .filter((value) => value.length > 0);
-
-  return [...new Set(normalized)];
-}
-
-const passengerKeywords = uniqueNormalized([...PASSENGER_KEYWORDS_LATIN, ...PASSENGER_KEYWORDS_CYRILLIC]);
-const routeKeywords = uniqueNormalized(ROUTE_KEYWORDS);
-const movementKeywords = uniqueNormalized(MOVEMENT_KEYWORDS);
-const spamKeywords = uniqueNormalized(SPAM_KEYWORDS);
-const driverAdKeywords = uniqueNormalized(DRIVER_AD_NEGATIVE_KEYWORDS);
-
-function collectHits(normalizedText: string, keywords: readonly string[]): string[] {
-  return keywords.filter((keyword) => containsKeyword(normalizedText, keyword));
-}
-
-function confidenceFromKeywordScore(score: number, isPassengerRequest: boolean): number {
-  if (isPassengerRequest) {
-    return clampConfidence(0.55 + Math.min(score, 8) * 0.06);
-  }
-
-  return clampConfidence(0.15 + Math.max(0, score) * 0.1);
 }
 
 export function normalizeText(text: string): string {
   return normalizeUzbekText(stripExtraPunctuation(text));
 }
 
-export function keywordClassify(text: string): KeywordClassification {
-  const normalized = normalizeText(text);
+function toKeywordScore(result: DictionaryRuleResult): number {
+  return result.passenger_score - result.driver_score - result.cargo_score - result.spam_score;
+}
 
-  if (!normalized) {
+export function keywordClassify(text: string): KeywordClassification {
+  if (!normalizeText(text)) {
     return {
       is_passenger_request: false,
       confidence: 0,
@@ -390,28 +416,14 @@ export function keywordClassify(text: string): KeywordClassification {
     };
   }
 
-  const passengerHits = collectHits(normalized, passengerKeywords);
-  const routeHits = collectHits(normalized, routeKeywords);
-  const movementHits = collectHits(normalized, movementKeywords);
-  const spamHits = collectHits(normalized, spamKeywords);
-  const driverAdHits = collectHits(normalized, driverAdKeywords);
-  const hasPhone = Boolean(extractPhone(text));
-
-  const score =
-    passengerHits.length * 3 +
-    routeHits.length * 2 +
-    movementHits.length +
-    (hasPhone ? 1 : 0) -
-    spamHits.length * 3 -
-    driverAdHits.length * 3;
-
-  const isPassengerRequest = score >= 3;
-  const confidence = confidenceFromKeywordScore(score, isPassengerRequest);
+  const ruleResult = analyzeByKeywordDictionary(text);
+  const score = toKeywordScore(ruleResult);
+  const isPassengerRequest = ruleResult.category === "PASSENGER_LEAD";
 
   return {
     is_passenger_request: isPassengerRequest,
-    confidence,
-    reason: `score=${score}; passenger=${passengerHits.length}; route=${routeHits.length}; movement=${movementHits.length}; phone=${hasPhone ? 1 : 0}; spam=${spamHits.length}; driver_ad=${driverAdHits.length}`,
+    confidence: clampConfidence(ruleResult.confidence),
+    reason: ruleResult.reason,
     score
   };
 }
@@ -775,85 +787,127 @@ async function classifyWithProvider(providerName: AIProviderName, text: string):
   return providerAdapters[providerName].analyzeLead(text);
 }
 
-export async function classifyMessage(text: string): Promise<MessageClassification> {
-  const normalizedText = normalizeText(text);
-
-  if (env.AI_ENABLED) {
-    for (const providerName of env.AI_PROVIDER_ORDER) {
-      if (!isProviderConfigured(providerName)) {
-        logger.debug({ provider: providerName }, "Provider skipped because credentials are not configured");
-        continue;
-      }
-
-      if (!isProviderAvailable(providerName)) {
-        continue;
-      }
-
-      for (let attempt = 0; attempt <= env.AI_MAX_RETRIES; attempt += 1) {
-        try {
-          logger.info({ provider: providerName, attempt: attempt + 1 }, "Classifier provider selected");
-          const aiResult = await classifyWithProvider(providerName, text);
-
-          return {
-            is_passenger_request: aiResult.is_passenger_lead,
-            confidence: clampConfidence(aiResult.confidence),
-            reason: aiResult.reason,
-            provider: providerName,
-            normalizedText,
-            providerStatuses: getProviderStatusSnapshot(),
-            isDriverAd: aiResult.is_driver_ad,
-            isSpam: aiResult.is_spam,
-            fromLocation: aiResult.from_location,
-            toLocation: aiResult.to_location,
-            phone: aiResult.phone,
-            passengerCount: aiResult.passenger_count,
-            timeHint: aiResult.time_hint
-          };
-        } catch (error) {
-          const canRetry = attempt < env.AI_MAX_RETRIES;
-
-          if (isRateLimitError(error) || isTemporaryError(error)) {
-            if (canRetry) {
-              continue;
-            }
-
-            disableProvider(providerName, cooldownMsFromError(error), getErrorSummary(error));
-            break;
-          }
-
-          if (canRetry) {
-            continue;
-          }
-
-          logger.warn(
-            {
-              provider: providerName,
-              error: getErrorSummary(error)
-            },
-            "Provider failed, trying next provider"
-          );
-        }
-      }
-    }
-  }
-
-  const fallback = keywordClassify(text);
+function mapRuleResultToClassification(rule: DictionaryRuleResult, normalizedText: string): MessageClassification {
+  const isPassenger = rule.category === "PASSENGER_LEAD";
+  const isDriverAd = rule.category === "DRIVER_AD";
+  const isSpam = rule.category === "IGNORE_SPAM";
 
   return {
-    is_passenger_request: fallback.is_passenger_request,
-    confidence: fallback.confidence,
-    reason: fallback.reason,
-    provider: "keyword",
+    category: rule.category,
+    is_passenger_request: isPassenger,
+    confidence: clampConfidence(rule.confidence),
+    reason: rule.reason,
+    provider: "rule",
     normalizedText,
-    keywordScore: fallback.score,
+    keywordScore: toKeywordScore(rule),
+    passengerScore: rule.passenger_score,
+    driverScore: rule.driver_score,
+    cargoScore: rule.cargo_score,
+    spamScore: rule.spam_score,
+    matchedKeywords: rule.matched_keywords,
     providerStatuses: getProviderStatusSnapshot(),
-    isDriverAd: false,
-    isSpam: false,
+    isDriverAd,
+    isSpam,
     fromLocation: null,
     toLocation: null,
     phone: null,
     passengerCount: null,
     timeHint: null
+  };
+}
+
+function mapAIResultToClassification(ai: AIResult, provider: AIProviderName, normalizedText: string): MessageClassification {
+  const isPassenger = ai.category === "PASSENGER_LEAD" || ai.is_passenger_lead;
+  const isDriverAd = ai.category === "DRIVER_AD" || ai.is_driver_ad;
+  const isSpam = ai.category === "IGNORE_SPAM" || ai.is_spam;
+
+  return {
+    category: ai.category,
+    is_passenger_request: isPassenger,
+    confidence: clampConfidence(ai.confidence),
+    reason: ai.reason,
+    provider,
+    normalizedText,
+    keywordScore: ai.passenger_score - ai.driver_score - ai.cargo_score - ai.spam_score,
+    passengerScore: ai.passenger_score,
+    driverScore: ai.driver_score,
+    cargoScore: ai.cargo_score,
+    spamScore: ai.spam_score,
+    matchedKeywords: ai.matched_keywords,
+    providerStatuses: getProviderStatusSnapshot(),
+    isDriverAd,
+    isSpam,
+    fromLocation: ai.from_location,
+    toLocation: ai.to_location,
+    phone: ai.phone,
+    passengerCount: ai.passenger_count,
+    timeHint: ai.time_hint
+  };
+}
+
+export async function classifyMessage(text: string): Promise<MessageClassification> {
+  const normalizedText = normalizeText(text);
+  const ruleResult = analyzeByKeywordDictionary(text);
+  const ruleClassification = mapRuleResultToClassification(ruleResult, normalizedText);
+
+  if (!env.AI_ENABLED || !isRuleAmbiguous(ruleResult)) {
+    return ruleClassification;
+  }
+
+  for (const providerName of env.AI_PROVIDER_ORDER) {
+    if (!isProviderConfigured(providerName)) {
+      logger.debug({ provider: providerName }, "Provider skipped because credentials are not configured");
+      continue;
+    }
+
+    if (!isProviderAvailable(providerName)) {
+      continue;
+    }
+
+    for (let attempt = 0; attempt <= env.AI_MAX_RETRIES; attempt += 1) {
+      try {
+        logger.info({ provider: providerName, attempt: attempt + 1 }, "Classifier provider selected");
+        const aiResult = await classifyWithProvider(providerName, text);
+        const aiClassification = mapAIResultToClassification(aiResult, providerName, normalizedText);
+
+        if (aiClassification.category !== "AMBIGUOUS") {
+          return aiClassification;
+        }
+
+        return {
+          ...ruleClassification,
+          reason: `${ruleClassification.reason}; AI unresolved (${providerName})`
+        };
+      } catch (error) {
+        const canRetry = attempt < env.AI_MAX_RETRIES;
+
+        if (isRateLimitError(error) || isTemporaryError(error)) {
+          if (canRetry) {
+            continue;
+          }
+
+          disableProvider(providerName, cooldownMsFromError(error), getErrorSummary(error));
+          break;
+        }
+
+        if (canRetry) {
+          continue;
+        }
+
+        logger.warn(
+          {
+            provider: providerName,
+            error: getErrorSummary(error)
+          },
+          "Provider failed, trying next provider"
+        );
+      }
+    }
+  }
+
+  return {
+    ...ruleClassification,
+    reason: `${ruleClassification.reason}; AI unavailable`
   };
 }
 
@@ -870,3 +924,5 @@ export async function classifyLead(rawText: string): Promise<LeadClassification>
     route: detectRoute(rawText)
   };
 }
+
+
