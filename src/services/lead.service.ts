@@ -86,7 +86,8 @@ const PRICE_QUERY_KEYWORDS_NORMALIZED = [
 const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
   /\b(?:taxi|taksi|takis|mashina|moshina)\b.{0,24}\b(?:kerak|kere|kerak edi|kere edi|bormi)\b/iu,
   /\b(?:kerak|kere|kerak edi|kere edi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
-  /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|krk|kera)\b/iu,
+  /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|kerak|krk|kera|kk)\b/iu,
+  /\b(?:kk|krk)\b.{0,10}\b(?:taxi|taksi|takis)\b/iu,
   /\b(?:borish kerak|ketish kerak|borishim kerak|ketishim kerak|joy bormi|poputchik bormi|olib ketadigan bormi|ob ketadigan bormi)\b/iu,
   /\b(?:С‚Р°РєСЃРё|РјР°С€РёРЅР°|РјРѕС€РёРЅР°)\b.{0,24}\b(?:РєРµСЂР°Рє|РєРµСЂРµ|Р±РѕСЂРјРё)\b/iu,
   /\b(?:Р±РѕСЂРёС€ РєРµСЂР°Рє|РєРµС‚РёС€ РєРµСЂР°Рє|Р№СћР»РѕРІС‡Рё Р±РѕСЂ|Р№СѓР»РѕРІС‡Рё Р±РѕСЂ)\b/iu
@@ -512,15 +513,28 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     !shouldSendByAI &&
     keywordResult.score >= 2 &&
     (keywordResult.is_passenger_request || strongPassengerIntent || Boolean(routeFromRules) || Boolean(phone));
+  const shouldSendByStrongPassengerIntent =
+    !shouldSendByAI &&
+    !shouldSendByKeywordRescue &&
+    strongPassengerIntent &&
+    !isRouteFareInquiry &&
+    !isDriverAd &&
+    !isSpam &&
+    !isCargo;
   const shouldSendByRoutePassengerPattern =
     !shouldSendByAI &&
     !shouldSendByKeywordRescue &&
+    !shouldSendByStrongPassengerIntent &&
     hasRouteDetails &&
     (Boolean(passengerCount) || hasPassengerSoftSignal) &&
     !isRouteFareInquiry;
   const shouldSendByRouteFareInquiry = !shouldSendByAI && !shouldSendByKeywordRescue && isRouteFareInquiry;
   const shouldSend =
-    (shouldSendByAI || shouldSendByKeywordRescue || shouldSendByRoutePassengerPattern || shouldSendByRouteFareInquiry) &&
+    (shouldSendByAI ||
+      shouldSendByKeywordRescue ||
+      shouldSendByStrongPassengerIntent ||
+      shouldSendByRoutePassengerPattern ||
+      shouldSendByRouteFareInquiry) &&
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
     !isDriverAd &&
