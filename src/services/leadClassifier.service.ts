@@ -121,7 +121,7 @@ Muhim qoidalar:
 - "2 ta joy bor" odatda DRIVER_AD.
 - "ketish kerak" PASSENGER_LEAD.
 - "har kuni qatnaymiz" DRIVER_AD.
-- "murojaat uchun" ko'pincha DRIVER_AD yoki IGNORE_SPAM.
+- "murojaat uchun" odatda DRIVER_AD.
 - "pochta bor" POSTAL_CARGO.
 - "obuna bo'ling" IGNORE_SPAM.
 - Lotin, kirill, ruscha va aralash yozuvni tushun.

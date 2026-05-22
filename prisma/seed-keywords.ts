@@ -684,6 +684,201 @@ const SPAM_HIGH_WEIGHTS = new Map<string, number>([
   [n("ish bor"), 5]
 ]);
 
+const PASSENGER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
+  { phrase: "taxi kk", weight: 9 },
+  { phrase: "taksi kk", weight: 9 },
+  { phrase: "taxii kk", weight: 9 },
+  { phrase: "taksi krk", weight: 9 },
+  { phrase: "menga taxi kerak", weight: 9 },
+  { phrase: "menga taksi kerak", weight: 9 },
+  { phrase: "bizga taxi kerak", weight: 9 },
+  { phrase: "bizga taksi kerak", weight: 9 },
+  { phrase: "taxi topish kerak", weight: 9 },
+  { phrase: "taksi topish kerak", weight: 9 },
+  { phrase: "mashina topish kerak", weight: 9 },
+  { phrase: "hozir ketish kerak", weight: 9 },
+  { phrase: "tezda ketish kerak", weight: 9 },
+  { phrase: "tezroq ketish kerak", weight: 9 },
+  { phrase: "shoshilinch ketish kerak", weight: 9 },
+  { phrase: "shoshilinch taksi kerak", weight: 9 },
+  { phrase: "olib ketadigan bormi", weight: 8 },
+  { phrase: "ob ketadigan bormi", weight: 8 },
+  { phrase: "op ketadigan bormi", weight: 8 },
+  { phrase: "olib boradigan bormi", weight: 8 },
+  { phrase: "kim olib ketadi", weight: 8 },
+  { phrase: "kim ob ketadi", weight: 8 },
+  { phrase: "kim olib boradi", weight: 8 },
+  { phrase: "kim boradi", weight: 8 },
+  { phrase: "kim ketadi", weight: 8 },
+  { phrase: "joy bormi", weight: 10 },
+  { phrase: "joy bormi?", weight: 10 },
+  { phrase: "bo'sh joy bormi", weight: 8 },
+  { phrase: "bosh joy bormi", weight: 8 },
+  { phrase: "bitta joy bormi", weight: 8 },
+  { phrase: "ikkita joy bormi", weight: 8 },
+  { phrase: "kimda joy bor", weight: 8 },
+  { phrase: "kimda joy bormi", weight: 8 },
+  { phrase: "1 kishi bor", weight: 10 },
+  { phrase: "2 kishi bor", weight: 10 },
+  { phrase: "1 odam bor", weight: 10 },
+  { phrase: "2 odam bor", weight: 10 },
+  { phrase: "yo'lovchi bor", weight: 8 },
+  { phrase: "yolovchi bor", weight: 8 },
+  { phrase: "yulovchi bor", weight: 8 },
+  { phrase: "passajir bor", weight: 8 },
+  { phrase: "pasajir bor", weight: 8 },
+  { phrase: "poputchik bormi", weight: 7 },
+  { phrase: "poputka bormi", weight: 7 },
+  { phrase: "nechida ketadi", weight: 7 },
+  { phrase: "qachon ketadi", weight: 7 },
+  { phrase: "narxi qancha", weight: 6 },
+  { phrase: "necha pul", weight: 6 },
+  { phrase: "yo'l kira qancha", weight: 6 },
+  { phrase: "kira qancha", weight: 6 },
+  { phrase: "telefon tashang", weight: 7 },
+  { phrase: "nomer tashang", weight: 7 },
+  { phrase: "raqam tashang", weight: 7 }
+];
+
+const DRIVER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
+  { phrase: "taxi xizmati", weight: 10 },
+  { phrase: "taksi xizmati", weight: 10 },
+  { phrase: "taxi hizmati", weight: 10 },
+  { phrase: "taksi hizmati", weight: 10 },
+  { phrase: "xizmat bor", weight: 8 },
+  { phrase: "xizmat ko'rsatamiz", weight: 8 },
+  { phrase: "xizmat korsatamiz", weight: 8 },
+  { phrase: "xizmat qilamiz", weight: 8 },
+  { phrase: "bo'sh joy bor", weight: 10 },
+  { phrase: "bosh joy bor", weight: 10 },
+  { phrase: "2 ta joy bor", weight: 10 },
+  { phrase: "har kuni qatnaymiz", weight: 10 },
+  { phrase: "har kuni yuramiz", weight: 9 },
+  { phrase: "doimiy qatnaymiz", weight: 9 },
+  { phrase: "qatnaymiz", weight: 9 },
+  { phrase: "yuramiz", weight: 8 },
+  { phrase: "boramiz", weight: 8 },
+  { phrase: "ketamiz", weight: 8 },
+  { phrase: "yo'lga chiqamiz", weight: 8 },
+  { phrase: "yolga chiqamiz", weight: 8 },
+  { phrase: "yo'ldamiz", weight: 8 },
+  { phrase: "yoldamiz", weight: 8 },
+  { phrase: "trassadamiz", weight: 8 },
+  { phrase: "reys bor", weight: 8 },
+  { phrase: "zakaz olamiz", weight: 8 },
+  { phrase: "buyurtma olamiz", weight: 8 },
+  { phrase: "buyurtma qabul qilamiz", weight: 8 },
+  { phrase: "olib ketamiz", weight: 8 },
+  { phrase: "olib boramiz", weight: 8 },
+  { phrase: "yetkazib beramiz", weight: 8 },
+  { phrase: "murojaat uchun", weight: 9 },
+  { phrase: "bog'lanish uchun", weight: 8 },
+  { phrase: "aloqa uchun", weight: 8 },
+  { phrase: "kerak bo'lsa yozing", weight: 8 },
+  { phrase: "kerak bolsa yozing", weight: 8 },
+  { phrase: "operator", weight: 7 },
+  { phrase: "dispetcher", weight: 7 },
+  { phrase: "24/7", weight: 7 },
+  { phrase: "24 soat", weight: 7 },
+  { phrase: "arzon narx", weight: 7 },
+  { phrase: "kelishilgan narx", weight: 7 },
+  { phrase: "qulay narx", weight: 7 },
+  { phrase: "narx kelishiladi", weight: 7 },
+  { phrase: "tez va qulay", weight: 7 },
+  { phrase: "komfort", weight: 6 },
+  { phrase: "konditsioner", weight: 6 },
+  { phrase: "toza salon", weight: 6 },
+  { phrase: "tajribali haydovchi", weight: 7 },
+  { phrase: "ishonchli haydovchi", weight: 7 },
+  { phrase: "taxist", weight: 7 },
+  { phrase: "taksopark", weight: 6 },
+  { phrase: "lacetti", weight: 6 },
+  { phrase: "lasetti", weight: 6 },
+  { phrase: "cobalt", weight: 6 },
+  { phrase: "koblt", weight: 6 },
+  { phrase: "gentra", weight: 6 },
+  { phrase: "nexia", weight: 6 },
+  { phrase: "damas", weight: 6 },
+  { phrase: "spark", weight: 6 },
+  { phrase: "malibu", weight: 6 },
+  { phrase: "onix", weight: 6 },
+  { phrase: "captiva", weight: 6 },
+  { phrase: "matiz", weight: 6 },
+  { phrase: "miniven", weight: 6 },
+  { phrase: "sedan", weight: 6 },
+  { phrase: "yengil mashina", weight: 6 }
+];
+
+const CARGO_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
+  { phrase: "pochta", weight: 7 },
+  { phrase: "pochta bor", weight: 10 },
+  { phrase: "pochta ketadi", weight: 8 },
+  { phrase: "pochta olib ketamiz", weight: 9 },
+  { phrase: "pochta olib boramiz", weight: 9 },
+  { phrase: "posilka", weight: 7 },
+  { phrase: "posilka bor", weight: 10 },
+  { phrase: "posilka ketadi", weight: 8 },
+  { phrase: "yuk", weight: 7 },
+  { phrase: "yuk bor", weight: 9 },
+  { phrase: "yuk ketadi", weight: 8 },
+  { phrase: "yuk tashish", weight: 10 },
+  { phrase: "dostavka", weight: 8 },
+  { phrase: "yetkazma", weight: 8 },
+  { phrase: "jo'natma", weight: 8 },
+  { phrase: "jonatma", weight: 8 },
+  { phrase: "yuboruvchi", weight: 8 },
+  { phrase: "qabul qiluvchi", weight: 8 },
+  { phrase: "kategoriya pochta", weight: 10 },
+  { phrase: "kategoriya: pochta", weight: 10 }
+];
+
+const SPAM_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
+  { phrase: "kanalga obuna", weight: 8 },
+  { phrase: "obuna bo'ling", weight: 10 },
+  { phrase: "obuna boling", weight: 10 },
+  { phrase: "reklama", weight: 9 },
+  { phrase: "reklama uchun", weight: 8 },
+  { phrase: "elon berish", weight: 8 },
+  { phrase: "e'lon berish", weight: 8 },
+  { phrase: "admin bilan bog'laning", weight: 8 },
+  { phrase: "ish bor", weight: 6 },
+  { phrase: "vakansiya", weight: 6 },
+  { phrase: "xodim kerak", weight: 6 },
+  { phrase: "sotiladi", weight: 7 },
+  { phrase: "arenda", weight: 6 },
+  { phrase: "ijara", weight: 6 },
+  { phrase: "uy sotiladi", weight: 7 },
+  { phrase: "hovli sotiladi", weight: 7 },
+  { phrase: "aksiya", weight: 7 },
+  { phrase: "skidka", weight: 7 },
+  { phrase: "promo", weight: 7 },
+  { phrase: "instagram", weight: 7 },
+  { phrase: "youtube", weight: 7 },
+  { phrase: "tiktok", weight: 7 },
+  { phrase: "botga start bosing", weight: 8 },
+  { phrase: "pul ishlash", weight: 8 },
+  { phrase: "karta", weight: 6 },
+  { phrase: "plastik", weight: 6 },
+  { phrase: "click", weight: 6 },
+  { phrase: "payme", weight: 6 },
+  { phrase: "uzum", weight: 6 },
+  { phrase: "havola", weight: 7 },
+  { phrase: "link", weight: 7 },
+  { phrase: "http", weight: 7 },
+  { phrase: "https", weight: 7 },
+  { phrase: "t.me/", weight: 8 },
+  { phrase: "@admin", weight: 6 },
+  { phrase: "manba", weight: 6 },
+  { phrase: "bizni kuzatib boring", weight: 8 },
+  { phrase: "yangiliklar", weight: 6 },
+  { phrase: "diqqat", weight: 6 },
+  { phrase: "rasmiy kanal", weight: 8 },
+  { phrase: "do'kon", weight: 6 },
+  { phrase: "dokoni", weight: 6 },
+  { phrase: "savdo", weight: 6 },
+  { phrase: "chegirma", weight: 7 }
+];
+
 function n(value: string): string {
   return baseNormalizePhrase(value);
 }
@@ -939,6 +1134,24 @@ function generateAmbiguousPhrases(): void {
   }
 }
 
+function addManualExpansionKeywords(): void {
+  for (const item of PASSENGER_MANUAL_EXPANSION) {
+    addKeyword(KeywordCategory.PASSENGER, item.phrase, item.weight, undefined, KeywordMatchType.PHRASE, "generated-manual");
+  }
+
+  for (const item of DRIVER_MANUAL_EXPANSION) {
+    addKeyword(KeywordCategory.DRIVER, item.phrase, item.weight, undefined, KeywordMatchType.PHRASE, "generated-manual");
+  }
+
+  for (const item of CARGO_MANUAL_EXPANSION) {
+    addKeyword(KeywordCategory.CARGO, item.phrase, item.weight, undefined, KeywordMatchType.PHRASE, "generated-manual");
+  }
+
+  for (const item of SPAM_MANUAL_EXPANSION) {
+    addKeyword(KeywordCategory.SPAM, item.phrase, item.weight, undefined, KeywordMatchType.PHRASE, "generated-manual");
+  }
+}
+
 function generateRegexKeywords(): void {
   const patterns: Array<{ category: KeywordCategory; pattern: string; weight: number }> = [
     { category: KeywordCategory.PASSENGER, pattern: "\\b\\d+\\s*(kishi|odam|та киши|та одам)\\s*(bor|бор)\\b", weight: 8 },
@@ -976,6 +1189,7 @@ function generateRegexKeywords(): void {
       pattern: "\\b(?:taxi|taksi)\\b.{0,30}\\bbor\\b.{0,30}\\b(?:kishi|odam)\\b(?:.{0,20}\\bbo'?lsa\\b)?(?:.{0,30}\\b(?:olib|ob)\\s*ket(?:aman|amiz|amz)\\b)",
       weight: 10
     },
+    { category: KeywordCategory.PASSENGER, pattern: "\\b(?:taxi|taksi|taxii|taksii|takis)\\s*(?:kk|krk|kerak|kere)\\b", weight: 9 },
     { category: KeywordCategory.CARGO, pattern: "\\b(qayerdan|қаердан)\\b.*\\b(qayerga|қаерга)\\b", weight: 7 },
     { category: KeywordCategory.CARGO, pattern: "\\b(yuboruvchi|юборувчи)\\b.*\\b(qabul qiluvchi|қабул қилувчи)\\b", weight: 7 },
     { category: KeywordCategory.CARGO, pattern: "\\b(kategoriya|категория)\\s*[:\\-]?\\s*(pochta|почта)\\b", weight: 10 }
@@ -1083,6 +1297,7 @@ function buildCandidates(): CandidateKeyword[] {
   generateCargoPhrases();
   generateSpamPhrases();
   generateAmbiguousPhrases();
+  addManualExpansionKeywords();
   generateRegexKeywords();
   return [...keywordMap.values()];
 }
@@ -1106,7 +1321,7 @@ export async function seedKeywordDictionaryWithClient(prismaClient: PrismaClient
   const counts = countByCategory(generated);
   await prismaClient.keywordDictionary.updateMany({
     where: {
-      source: { in: ["generated", "generated-regex"] }
+      source: { in: ["generated", "generated-regex", "generated-manual"] }
     },
     data: { isActive: false }
   });
