@@ -471,6 +471,27 @@ function buildSourceFormatHintMessage(): string {
   ].join("\n");
 }
 
+function buildPrivateFormatHintMessage(): string {
+  return [
+    "⚠️ Xabaringiz qabul qilinmadi",
+    "Username yoki telefon ko'rsatilmagan.",
+    "",
+    "Iltimos, quyidagicha yuboring:",
+    "🚕 Taxi kerak",
+    "📍 Yo'nalish: Qayerdan -> Qayerga",
+    "📞 Telefon: +998XXXXXXXXX",
+    "🕒 Vaqt: hozir / soat 18:30",
+    "👥 Odam soni: 1-2 ta"
+  ].join("\n");
+}
+
+function buildDriverAdBlockedMessage(): string {
+  return [
+    "🚫 Bu guruhda haydovchi reklama xabarlari taqiqlangan.",
+    "Faqat yo'lovchi so'rovlarini yuboring."
+  ].join("\n");
+}
+
 function getMessageText(msg: Context["msg"]): string | null {
   if (!msg) {
     return null;
@@ -700,8 +721,9 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const hasRouteDetails = Boolean(routeFromRules) || Boolean(fromLocation) || Boolean(toLocation);
   const hasMinimumLeadDetails = Boolean(phone) || hasRouteDetails;
   const isMetaInstructionMessage = metaInstructionHits.length >= 2 && !hasMinimumLeadDetails;
-  const hasHiddenSenderIdentity = payload.senderId.startsWith("chat:") || (!payload.senderUsername && !phone);
-  const hiddenWithoutContactIdentity = hasHiddenSenderIdentity && !payload.senderUsername && !phone;
+  const senderIsHiddenByTelegram = payload.senderId.startsWith("chat:");
+  const hasHiddenSenderIdentity = senderIsHiddenByTelegram;
+  const hiddenWithoutContactIdentity = senderIsHiddenByTelegram && !payload.senderUsername && !phone;
   const isSourceAdmin = payload.isSourceAdmin === true;
   const isDriverChatMember = payload.isDriverChatMember === true;
   const isProtectedFromDeletion = isSourceAdmin || isDriverChatMember;
@@ -712,6 +734,32 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const phoneDropMessage = isPhoneDropMessage(originalText, phone);
   const commercialAdNoiseHits = detectCommercialAdNoiseHits(originalText);
   const commercialAdNoiseMessage = commercialAdNoiseHits.length > 0 && !hasHardPassengerSignal && !hasRouteDetails;
+  const taxiRelatedCandidateMessage =
+    categoryIsPassenger ||
+    classification.is_passenger_request ||
+    strongPassengerIntent ||
+    hasTaxiNeedIntent ||
+    hasRouteDetails ||
+    keywordResult.score >= 2;
+  const shouldSendSourceFormatHint =
+    !payload.senderUsername &&
+    !phone &&
+    taxiRelatedCandidateMessage &&
+    !chatNoiseMessage &&
+    !isDriverAd &&
+    !isSpam &&
+    !isCargo &&
+    !isMetaInstructionMessage;
+  const shouldSendPrivateFormatHint =
+    !payload.senderId.startsWith("chat:") &&
+    !payload.senderUsername &&
+    !phone &&
+    taxiRelatedCandidateMessage &&
+    !chatNoiseMessage &&
+    !isDriverAd &&
+    !isSpam &&
+    !isCargo &&
+    !isMetaInstructionMessage;
 
   const shouldSendByAI = categoryIsPassenger || (classification.is_passenger_request && classification.confidence >= env.AI_MIN_CONFIDENCE);
   const shouldSendByKeywordRescue =
@@ -860,7 +908,23 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       errorMessage: ignoreReason
     });
 
-    if (hiddenWithoutContactIdentity && actions.notifySourceChat && !payload.isStartupBackfill) {
+    if (isDriverAd && actions.notifySourceChat && !payload.isStartupBackfill && !isProtectedFromDeletion) {
+      try {
+        await actions.notifySourceChat(buildDriverAdBlockedMessage());
+        await writeInfo("Driver ad warning sent", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        });
+      } catch (driverAdWarnError) {
+        await writeWarn("Failed to send driver ad warning", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          error: driverAdWarnError instanceof Error ? driverAdWarnError.message : String(driverAdWarnError)
+        });
+      }
+    }
+
+    if (shouldSendSourceFormatHint && actions.notifySourceChat && !payload.isStartupBackfill) {
       try {
         await actions.notifySourceChat(buildSourceFormatHintMessage());
         await writeInfo("Source format hint sent", {
@@ -876,6 +940,24 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       }
     }
 
+    if (shouldSendPrivateFormatHint && actions.notifyPassenger && !payload.isStartupBackfill) {
+      try {
+        await actions.notifyPassenger(buildPrivateFormatHintMessage());
+        await writeInfo("Passenger private format hint sent", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId
+        });
+      } catch (privateHintError) {
+        await writeWarn("Failed to send passenger private format hint", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId,
+          error: privateHintError instanceof Error ? privateHintError.message : String(privateHintError)
+        });
+      }
+    }
+
     const shouldDeleteIgnoredMessage =
       !isProtectedFromDeletion &&
       (isDriverAd ||
@@ -884,12 +966,12 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         isMetaInstructionMessage ||
         (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
           (isAmbiguousRouteOnly ||
-            hiddenWithoutContactIdentity ||
+            shouldSendSourceFormatHint ||
             chatNoiseMessage ||
             phoneDropMessage ||
             commercialAdNoiseMessage ||
-            !hasHardPassengerSignal ||
-            !hasMinimumLeadDetails)));
+            (taxiRelatedCandidateMessage && !hasHardPassengerSignal) ||
+            (taxiRelatedCandidateMessage && !hasMinimumLeadDetails))));
 
     if (shouldDeleteIgnoredMessage) {
       await deleteFromSourceIfPossible(ignoreReason);
@@ -961,7 +1043,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       driverMessageId
     });
 
-    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
+    const shouldSkipPrivateAckForVisibleProfile = Boolean(payload.senderUsername);
+    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && actions.notifyPassenger && !payload.senderId.startsWith("chat:") && !shouldSkipPrivateAckForVisibleProfile) {
       const passengerAck = buildPassengerAckMessage({
         fromLocation,
         toLocation,
@@ -985,6 +1068,15 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
           error: notifyError instanceof Error ? notifyError.message : String(notifyError)
         });
       }
+    }
+
+    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && shouldSkipPrivateAckForVisibleProfile) {
+      await writeInfo("Passenger private ack skipped (visible profile)", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        senderId: payload.senderId,
+        senderUsername: payload.senderUsername
+      });
     }
 
     if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource && !isProtectedFromDeletion) {
