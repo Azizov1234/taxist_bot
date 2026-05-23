@@ -487,6 +487,7 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
     senderUsername,
     isSourceAdmin: false,
     isDriverChatMember: false,
+    isStartupBackfill: false,
     text: messageText,
     messageDate: getMessageDate(event.message.date),
     isForwarded: Boolean((event.message as any).fwdFrom)
@@ -524,6 +525,7 @@ async function buildUnifiedPayloadFromStoredMessage(
     senderUsername,
     isSourceAdmin: false,
     isDriverChatMember: false,
+    isStartupBackfill: true,
     text: messageText,
     messageDate: getMessageDate(message?.date),
     isForwarded: Boolean(message?.fwdFrom)
@@ -694,6 +696,12 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
         await client.sendMessage(senderEntity, {
           message: textToPassenger
+        });
+      },
+      notifySourceChat: async (textToSourceChat) => {
+        await client.sendMessage(sourceChatIdNumber, {
+          message: textToSourceChat,
+          replyTo: payload.sourceMessageId
         });
       }
     };

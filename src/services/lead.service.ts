@@ -30,6 +30,7 @@ export interface UnifiedIncomingMessage {
   senderUsername: string | null;
   isSourceAdmin?: boolean;
   isDriverChatMember?: boolean;
+  isStartupBackfill?: boolean;
   text: string;
   messageDate: Date;
   isForwarded?: boolean;
@@ -39,6 +40,7 @@ export interface UnifiedMessageActions {
   sendToDriver: (formattedText: string, originalText: string) => Promise<DriverSendResult>;
   deleteFromSource?: () => Promise<void>;
   notifyPassenger?: (text: string) => Promise<void>;
+  notifySourceChat?: (text: string) => Promise<void>;
 }
 
 const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
@@ -455,6 +457,20 @@ function buildPassengerAckMessage(params: {
   ].join("\n");
 }
 
+function buildSourceFormatHintMessage(): string {
+  return [
+    "⚠️ Xabar qabul qilinmadi",
+    "Username yoki telefon ko'rsatilmagan.",
+    "Iltimos, xabarni quyidagi formatda qayta yozing:",
+    "",
+    "🚕 Taxi kerak",
+    "📍 Yo'nalish: Qayerdan -> Qayerga",
+    "📞 Telefon: +998XXXXXXXXX",
+    "🕒 Vaqt: hozir / soat 18:30",
+    "👥 Odam soni: 1-2 ta"
+  ].join("\n");
+}
+
 function getMessageText(msg: Context["msg"]): string | null {
   if (!msg) {
     return null;
@@ -844,6 +860,22 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       errorMessage: ignoreReason
     });
 
+    if (hiddenWithoutContactIdentity && actions.notifySourceChat && !payload.isStartupBackfill) {
+      try {
+        await actions.notifySourceChat(buildSourceFormatHintMessage());
+        await writeInfo("Source format hint sent", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        });
+      } catch (sourceHintError) {
+        await writeWarn("Failed to send source format hint", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          error: sourceHintError instanceof Error ? sourceHintError.message : String(sourceHintError)
+        });
+      }
+    }
+
     const shouldDeleteIgnoredMessage =
       !isProtectedFromDeletion &&
       (isDriverAd ||
@@ -1066,6 +1098,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     senderUsername: ctx.from?.username ?? null,
     isSourceAdmin: ctx.from?.id === env.ADMIN_TELEGRAM_ID,
     isDriverChatMember: false,
+    isStartupBackfill: false,
     text,
     messageDate: new Date(msg.date * 1000),
     isForwarded: isForwardedMessage(msg)
@@ -1085,6 +1118,13 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
       }
 
       await ctx.api.sendMessage(ctx.from.id, textToPassenger);
+    },
+    notifySourceChat: async (textToSourceChat) => {
+      await ctx.api.sendMessage(ctx.chat!.id, textToSourceChat, {
+        reply_parameters: {
+          message_id: msg.message_id
+        }
+      } as any);
     },
     deleteFromSource: async () => {
       await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);
