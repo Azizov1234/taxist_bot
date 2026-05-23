@@ -81,6 +81,12 @@ const envSchema = z.object({
   TELEGRAM_API_HASH: optionalStringSchema,
   TELEGRAM_STRING_SESSION: z.preprocess((value) => (value === undefined ? "" : String(value).trim()), z.string()),
   TELEGRAM_BOT_TOKEN: optionalStringSchema,
+  TELEGRAM_USE_WSS: optionalBooleanSchema,
+  TELEGRAM_CONNECTION_RETRIES: optionalNumberSchema,
+  TELEGRAM_RECONNECT_RETRIES: optionalNumberSchema,
+  TELEGRAM_RETRY_DELAY_MS: optionalNumberSchema,
+  TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: optionalNumberSchema,
+  TELEGRAM_STARTUP_CONNECT_RETRY_MS: optionalNumberSchema,
   PASSENGER_CHAT_IDS: optionalStringSchema,
   PASSENGERS_CHAT_ID: optionalChatIdSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
@@ -109,6 +115,11 @@ const envSchema = z.object({
   CLOUDFLARE_ACCOUNT_ID: optionalStringSchema,
   CLOUDFLARE_MODEL: optionalStringSchema,
   DELETE_SOURCE_MESSAGE_IF_ADMIN: optionalBooleanSchema,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN: optionalBooleanSchema,
+  SEND_PRIVATE_ACK_TO_PASSENGER: optionalBooleanSchema,
+  LISTENER_BACKFILL_SECONDS: optionalNumberSchema,
+  LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
+  STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
   DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
 });
@@ -206,7 +217,27 @@ const minConfidence = parsed.data.AI_MIN_CONFIDENCE ?? parsed.data.MIN_CONFIDENC
 const aiCooldownMinutes = parsed.data.AI_COOLDOWN_MINUTES ?? 10;
 const aiTimeoutMs = parsed.data.AI_TIMEOUT_MS ?? 15_000;
 const aiMaxRetries = Math.max(0, Math.round(parsed.data.AI_MAX_RETRIES ?? 1));
+const telegramUseWss = parsed.data.TELEGRAM_USE_WSS ?? true;
+const normalizeRetryCount = (value: number | undefined, fallback: number): number => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value < 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.round(value);
+};
+
+const telegramConnectionRetries = normalizeRetryCount(parsed.data.TELEGRAM_CONNECTION_RETRIES, Number.POSITIVE_INFINITY);
+const telegramReconnectRetries = normalizeRetryCount(parsed.data.TELEGRAM_RECONNECT_RETRIES, Number.POSITIVE_INFINITY);
+const telegramRetryDelayMs = parsed.data.TELEGRAM_RETRY_DELAY_MS ?? 2_000;
+const telegramStartupConnectMaxAttempts = parsed.data.TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS ?? 0;
+const telegramStartupConnectRetryMs = parsed.data.TELEGRAM_STARTUP_CONNECT_RETRY_MS ?? 5_000;
 const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
+const listenerBackfillSeconds = parsed.data.LISTENER_BACKFILL_SECONDS ?? 180;
+const listenerStartupBackfillLimit = parsed.data.LISTENER_STARTUP_BACKFILL_LIMIT ?? 20;
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
@@ -227,6 +258,26 @@ if (duplicateWindowMinutes <= 0) {
   throw new Error("Invalid environment variables: DUPLICATE_WINDOW_MINUTES must be greater than 0");
 }
 
+if (telegramRetryDelayMs <= 0) {
+  throw new Error("Invalid environment variables: TELEGRAM_RETRY_DELAY_MS must be greater than 0");
+}
+
+if (telegramStartupConnectMaxAttempts < 0) {
+  throw new Error("Invalid environment variables: TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS must be 0 or greater");
+}
+
+if (telegramStartupConnectRetryMs <= 0) {
+  throw new Error("Invalid environment variables: TELEGRAM_STARTUP_CONNECT_RETRY_MS must be greater than 0");
+}
+
+if (listenerBackfillSeconds < 0) {
+  throw new Error("Invalid environment variables: LISTENER_BACKFILL_SECONDS must be 0 or greater");
+}
+
+if (listenerStartupBackfillLimit < 0) {
+  throw new Error("Invalid environment variables: LISTENER_STARTUP_BACKFILL_LIMIT must be 0 or greater");
+}
+
 if (providerOrder.length === 0) {
   throw new Error("Invalid environment variables: AI_PROVIDER_ORDER must include at least one valid provider");
 }
@@ -239,6 +290,12 @@ export const env = {
   TELEGRAM_API_HASH: parsed.data.TELEGRAM_API_HASH ?? "",
   TELEGRAM_STRING_SESSION: parsed.data.TELEGRAM_STRING_SESSION,
   TELEGRAM_BOT_TOKEN: parsed.data.TELEGRAM_BOT_TOKEN,
+  TELEGRAM_USE_WSS: telegramUseWss,
+  TELEGRAM_CONNECTION_RETRIES: telegramConnectionRetries,
+  TELEGRAM_RECONNECT_RETRIES: telegramReconnectRetries,
+  TELEGRAM_RETRY_DELAY_MS: Math.round(telegramRetryDelayMs),
+  TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: Math.round(telegramStartupConnectMaxAttempts),
+  TELEGRAM_STARTUP_CONNECT_RETRY_MS: Math.round(telegramStartupConnectRetryMs),
   PASSENGER_CHAT_IDS: passengerChatIds,
   PASSENGERS_CHAT_ID: passengerChatIds[0] ?? 0,
   DRIVER_CHAT_ID: driverChatId,
@@ -269,6 +326,11 @@ export const env = {
   CLOUDFLARE_ACCOUNT_ID: parsed.data.CLOUDFLARE_ACCOUNT_ID,
   CLOUDFLARE_MODEL: parsed.data.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.1-8b-instruct",
   DELETE_SOURCE_MESSAGE_IF_ADMIN: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN ?? true,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN ?? true,
+  SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
+  LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
+  LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
+  STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
   DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)
 };

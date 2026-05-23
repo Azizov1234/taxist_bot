@@ -36,6 +36,7 @@ export interface UnifiedIncomingMessage {
 export interface UnifiedMessageActions {
   sendToDriver: (formattedText: string, originalText: string) => Promise<DriverSendResult>;
   deleteFromSource?: () => Promise<void>;
+  notifyPassenger?: (text: string) => Promise<void>;
 }
 
 const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
@@ -44,6 +45,11 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "odam_olaman", pattern: /\bodam\s*(?:olaman|olamiz)\b/iu },
   { id: "yolovchi_olaman", pattern: /\byo'?lovchi\s*(?:olaman|olamiz)\b/iu },
   { id: "mijoz_olaman", pattern: /\bmijoz\s*(?:olaman|olamiz)\b/iu },
+  {
+    id: "taksi_kerak_driver_ad",
+    pattern:
+      /\b(?:taxi|taksi|takis|taksilar|taksislar|mashina|moshina|avto)\b.{0,24}\b(?:odam|kishi|yo'?lovchi|yolovchi|yulovchi|mijoz|klient)\b.{0,24}\b(?:kerak|kere|kerede|keremas|krk)\b/iu
+  },
   { id: "odam_pochta_bolsa_olamiz", pattern: /\b(?:odam|pochta|yuk)\b.{0,20}\bbo'?l(?:sa|sayam?)\b.{0,20}\b(?:olaman|olamiz)\b/iu },
   {
     id: "yuramiz_odam_pochta",
@@ -89,10 +95,39 @@ const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
   /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|kerak|krk|kera|kk)\b/iu,
   /\b(?:kk|krk)\b.{0,10}\b(?:taxi|taksi|takis)\b/iu,
   /\b(?:borish kerak|ketish kerak|borishim kerak|ketishim kerak|joy bormi|poputchik bormi|olib ketadigan bormi|ob ketadigan bormi)\b/iu,
+  /\b(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu,
+  /\b(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a)\b.{0,24}\b(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b/iu,
   /\b(?:С‚Р°РєСЃРё|РјР°С€РёРЅР°|РјРѕС€РёРЅР°)\b.{0,24}\b(?:РєРµСЂР°Рє|РєРµСЂРµ|Р±РѕСЂРјРё)\b/iu,
   /\b(?:Р±РѕСЂРёС€ РєРµСЂР°Рє|РєРµС‚РёС€ РєРµСЂР°Рє|Р№СћР»РѕРІС‡Рё Р±РѕСЂ|Р№СѓР»РѕРІС‡Рё Р±РѕСЂ)\b/iu
 ];
 const PASSENGER_SOFT_SIGNAL_REGEX = /\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b/iu;
+const PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX = /\b(?:\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438)\b/iu;
+const TAXI_NEED_INTENT_REGEX =
+  /\b(?:taxi|taksi|takis|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:kerak|kere|kk|krk|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a)\b/iu;
+const CHAT_NOISE_PATTERNS: RegExp[] = [
+  /^(?:ok+|xo?p|hop|bop|boldi|bo'?ldi|ha|yo'?q|bor|oldim|olindi|tushunarli|kerakmas|keremas|zakaz\s*kerakmas|zakaz\s*keremas|zaks\s*keremas)$/iu,
+  /^(?:assalomu?\s*alaykum|asalomu?\s*alaykum|salom|va\s*alaykum\s*assalom|alaykum\s*assalom)$/iu,
+  /^(?:rahmat|raxmat|spasiba|thanks)$/iu,
+  /^[.?!,\s]+$/u
+];
+const CONTACT_DROP_TOKENS = new Set([
+  "tel",
+  "telefon",
+  "phone",
+  "nomer",
+  "raqam",
+  "number",
+  "aloqa",
+  "murojaat",
+  "uchun",
+  "zvonok",
+  "call"
+]);
+const COMMERCIAL_AD_NOISE_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  { id: "service_banner", pattern: /\b(?:xizmatlar[iy]?|service|servis|navbatsiz|murojaat\s+uchun)\b/iu },
+  { id: "offline_store", pattern: /\b(?:manzil|apteka|do'?kon|magazin|filial)\b/iu },
+  { id: "mass_reach_ad", pattern: /\b(?:telegram|instagram|youtube|kanal|obuna)\b/iu }
+];
 
 const META_INSTRUCTION_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "nickname_or_username", pattern: /\b(?:nick\s*name|nickname|nikname|username)\b/iu },
@@ -133,6 +168,62 @@ function hasStrongPassengerIntent(text: string): boolean {
 
 function detectMetaInstructionHits(text: string): string[] {
   return META_INSTRUCTION_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+}
+
+function detectCommercialAdNoiseHits(text: string): string[] {
+  return COMMERCIAL_AD_NOISE_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+}
+
+function isChatNoiseMessage(originalText: string, normalizedText: string): boolean {
+  const compact = normalizedText
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!compact) {
+    return true;
+  }
+
+  if (compact.length > 40) {
+    return false;
+  }
+
+  if (CHAT_NOISE_PATTERNS.some((pattern) => pattern.test(compact))) {
+    return true;
+  }
+
+  if (/^[\p{N}\s()+\-./]+$/u.test(originalText.trim())) {
+    return true;
+  }
+
+  return false;
+}
+
+function isPhoneDropMessage(originalText: string, phone: string | null): boolean {
+  if (!phone) {
+    return false;
+  }
+
+  const withoutPhone = originalText
+    .replace(/\+?\d[\d\s().-]{5,}\d/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!withoutPhone) {
+    return true;
+  }
+
+  const tokens = normalizeText(withoutPhone).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return true;
+  }
+
+  if (tokens.length <= 3 && tokens.every((token) => CONTACT_DROP_TOKENS.has(token))) {
+    return true;
+  }
+
+  return false;
 }
 
 function isGenericLocationToken(value: string | null): boolean {
@@ -229,6 +320,44 @@ function extractTimeHint(text: string): string | null {
   return found ?? null;
 }
 
+function extractFareMentions(text: string): string[] {
+  const sanitized = text.replace(/\s+/g, " ").trim();
+  if (!sanitized) {
+    return [];
+  }
+
+  const patterns = [
+    /\b\d{2,8}\s*(?:ming|minga|mingdan|k|kk|mln|million|som|sum|so['`]?m|so'mga|usd|уе|у\.е\.|rub|rubl|руб)\b/giu,
+    /\b(?:narx(?:i)?|pul|beraman|beradi|taklif)\s*[:=-]?\s*\d{2,8}\b/giu,
+    /\b\d{2,8}\s*(?:so'm|som|sum)\s*(?:beraman|beradi|boladi)?\b/giu
+  ];
+
+  const values: string[] = [];
+  const seen = new Set<string>();
+
+  for (const pattern of patterns) {
+    for (const match of sanitized.matchAll(pattern)) {
+      const raw = match[0]?.trim();
+      if (!raw) {
+        continue;
+      }
+
+      const key = normalizeText(raw);
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      values.push(raw);
+      if (values.length >= 4) {
+        return values;
+      }
+    }
+  }
+
+  return values;
+}
+
 function buildSourceMessageLink(sourceChatId: string, sourceMessageId: number, sourceChatUsername?: string | null): string | null {
   const usernameRaw = typeof sourceChatUsername === "string" ? sourceChatUsername.trim().replace(/^@/, "") : "";
   if (/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(usernameRaw)) {
@@ -272,27 +401,55 @@ function buildDriverLeadSummary(params: {
   confidence: number;
   status: LeadStatus;
   hasHiddenSenderIdentity: boolean;
+  fareMentions: string[];
 }): string {
   const usernameValue = params.senderUsername ? `@${params.senderUsername}` : "yo'q";
   const phoneValue = params.phone ?? "xabarda topilmadi";
+  const fareValue = params.fareMentions.length > 0 ? params.fareMentions.join(", ") : "aniqlanmadi";
   const sourceMessageLink = buildSourceMessageLink(params.sourceChatId, params.sourceMessageId, params.sourceChatUsername);
 
   return [
-    "Yangi yo'lovchi topildi",
+    "🚕✨ Yangi yo'lovchi so'rovi",
+    "━━━━━━━━━━━━━━━━━━",
+    `👤 Ism: ${params.senderFullName}`,
+    `🔖 Username: ${usernameValue}`,
+    `📞 Telefon: ${phoneValue}`,
     "",
-    `Ism: ${params.senderFullName}`,
-    `Username: ${usernameValue}`,
-    `Telefon: ${phoneValue}`,
+    `📍 Qayerdan: ${params.fromLocation ?? "aniqlanmadi"}`,
+    `🎯 Qayerga: ${params.toLocation ?? "aniqlanmadi"}`,
+    `👥 Odam soni: ${params.passengerCount ?? "aniqlanmadi"}`,
+    `🕒 Vaqt: ${params.timeHint ?? params.messageTime}`,
+    `💰 Narx/kelishuv: ${fareValue}`,
     "",
-    `Qayerdan: ${params.fromLocation ?? "aniqlanmadi"}`,
-    `Qayerga: ${params.toLocation ?? "aniqlanmadi"}`,
-    `Odam soni: ${params.passengerCount ?? "aniqlanmadi"}`,
-    `Vaqt: ${params.timeHint ?? params.messageTime}`,
-    "",
-    "Xabar:",
+    "📝 Xabar:",
     shorten(params.originalMessage, 2500),
     "",
-    `Source link: ${sourceMessageLink ?? "mavjud emas"}`
+    `🔗 Source link: ${sourceMessageLink ?? "mavjud emas"}`
+  ].join("\n");
+}
+
+function buildPassengerAckMessage(params: {
+  fromLocation: string | null;
+  toLocation: string | null;
+  passengerCount: number | null;
+  timeHint: string | null;
+  fareMentions: string[];
+}): string {
+  const route = `${params.fromLocation ?? "aniqlanmadi"} -> ${params.toLocation ?? "aniqlanmadi"}`;
+  const fare = params.fareMentions.length > 0 ? params.fareMentions.join(", ") : "ko'rsatilmagan";
+
+  return [
+    "✅ So'rovingiz qabul qilindi",
+    "🚕 So'rovingiz taksi kanaliga muvaffaqiyatli yuborildi.",
+    "━━━━━━━━━━━━━━━━━━",
+    "",
+    `📍 Yo'nalish: ${route}`,
+    `👥 Yo'lovchi soni: ${params.passengerCount ?? "aniqlanmadi"}`,
+    `🕒 Vaqt: ${params.timeHint ?? "aniqlanmadi"}`,
+    `💰 Narx/kelishuv: ${fare}`,
+    "",
+    "📞 Iltimos, telefoningiz ochiq bo'lsin.",
+    "🙏 Tez orada siz bilan bog'lanishadi."
   ].join("\n");
 }
 
@@ -421,12 +578,31 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   });
 
   if (existingByMessage) {
-    await writeInfo("Duplicate source message skipped", {
-      sourceChatId: payload.sourceChatId,
-      sourceMessageId: payload.sourceMessageId
-    });
+    const shouldRetryDelivery =
+      existingByMessage.status === LeadStatus.NEW ||
+      existingByMessage.status === LeadStatus.ERROR;
 
-    return { processed: false, reason: "Duplicate source message" };
+    if (shouldRetryDelivery) {
+      await writeWarn("Existing unsent source message found, retrying delivery", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        existingLeadId: existingByMessage.id,
+        existingStatus: existingByMessage.status
+      });
+
+      await prisma.lead.delete({
+        where: { id: existingByMessage.id }
+      });
+    } else {
+      await writeInfo("Duplicate source message skipped", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        existingLeadId: existingByMessage.id,
+        existingStatus: existingByMessage.status
+      });
+
+      return { processed: false, reason: "Duplicate source message" };
+    }
   }
 
   const normalizedText = normalizeText(originalText);
@@ -434,6 +610,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
 
   const duplicateBySenderText = await prisma.lead.findFirst({
     where: {
+      sourceChatId: payload.sourceChatId,
       senderId: payload.senderId,
       normalizedText,
       createdAt: { gte: duplicateWindowStart }
@@ -482,6 +659,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const phone = classification.phone ?? phoneFromRules;
   const passengerCount = classification.passengerCount ?? passengerCountFromRules;
   const timeHint = classification.timeHint ?? timeHintFromRules;
+  const fareMentions = extractFareMentions(originalText);
 
   const aiOnlyDriverAd = classification.isDriverAd && driverAdHits.length === 0 && driverAdPatternHits.length === 0;
   const hasCommercialVerb = DRIVER_COMMERCIAL_VERB_REGEX.test(originalText);
@@ -506,7 +684,12 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const isMetaInstructionMessage = metaInstructionHits.length >= 2 && !hasMinimumLeadDetails;
   const hasHiddenSenderIdentity = payload.senderId.startsWith("chat:") || (!payload.senderUsername && !phone);
   const hasHardPassengerSignal = keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules);
-  const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText);
+  const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText) || PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX.test(originalText);
+  const hasTaxiNeedIntent = TAXI_NEED_INTENT_REGEX.test(originalText);
+  const chatNoiseMessage = isChatNoiseMessage(originalText, classification.normalizedText);
+  const phoneDropMessage = isPhoneDropMessage(originalText, phone);
+  const commercialAdNoiseHits = detectCommercialAdNoiseHits(originalText);
+  const commercialAdNoiseMessage = commercialAdNoiseHits.length > 0 && !hasHardPassengerSignal && !hasRouteDetails;
 
   const shouldSendByAI = categoryIsPassenger || (classification.is_passenger_request && classification.confidence >= env.AI_MIN_CONFIDENCE);
   const shouldSendByKeywordRescue =
@@ -526,14 +709,26 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     !shouldSendByKeywordRescue &&
     !shouldSendByStrongPassengerIntent &&
     hasRouteDetails &&
-    (Boolean(passengerCount) || hasPassengerSoftSignal) &&
+    (Boolean(passengerCount) || hasPassengerSoftSignal || hasTaxiNeedIntent || Boolean(phone)) &&
     !isRouteFareInquiry;
+  const shouldSendByTaxiNeedPhone =
+    !shouldSendByAI &&
+    !shouldSendByKeywordRescue &&
+    !shouldSendByStrongPassengerIntent &&
+    !shouldSendByRoutePassengerPattern &&
+    hasTaxiNeedIntent &&
+    Boolean(phone) &&
+    !isRouteFareInquiry &&
+    !isDriverAd &&
+    !isSpam &&
+    !isCargo;
   const shouldSendByRouteFareInquiry = !shouldSendByAI && !shouldSendByKeywordRescue && isRouteFareInquiry;
   const shouldSend =
     (shouldSendByAI ||
       shouldSendByKeywordRescue ||
       shouldSendByStrongPassengerIntent ||
       shouldSendByRoutePassengerPattern ||
+      shouldSendByTaxiNeedPhone ||
       shouldSendByRouteFareInquiry) &&
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
@@ -559,6 +754,10 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     isMetaInstructionMessage,
     hasHiddenSenderIdentity,
     hasHardPassengerSignal,
+    hasTaxiNeedIntent,
+    chatNoiseMessage,
+    phoneDropMessage,
+    commercialAdNoiseHits,
     shouldSend,
     providerStatuses: classification.providerStatuses.map((status) => ({
       name: status.name,
@@ -594,6 +793,26 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   };
 
   if (!hasHardPassengerSignal || !shouldSend) {
+    const ignoreReason = isDriverAd
+      ? "Driver ad detected"
+      : isCargo
+        ? "Cargo/postal message detected"
+      : isSpam
+        ? "Spam detected"
+        : isAmbiguousRouteOnly
+          ? "Ambiguous route-only message"
+          : isMetaInstructionMessage
+            ? "Meta instruction message ignored"
+            : chatNoiseMessage
+              ? "Chat noise message ignored"
+              : phoneDropMessage
+                ? "Contact-only message ignored"
+                : commercialAdNoiseMessage
+                  ? "Commercial ad noise ignored"
+                  : !hasMinimumLeadDetails
+                    ? "Missing minimum lead details (phone/route)"
+                    : "Classifier rejected";
+
     await saveLeadWithStatus({
       payload,
       originalText,
@@ -608,31 +827,24 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       isDriverAd,
       isSpam,
       status: LeadStatus.IGNORED,
-      errorMessage: isDriverAd
-        ? "Driver ad detected"
-        : isCargo
-          ? "Cargo/postal message detected"
-        : isSpam
-          ? "Spam detected"
-          : isAmbiguousRouteOnly
-            ? "Ambiguous route-only message"
-          : isMetaInstructionMessage
-            ? "Meta instruction message ignored"
-            : !hasMinimumLeadDetails
-              ? "Missing minimum lead details (phone/route)"
-              : "Classifier rejected"
+      errorMessage: ignoreReason
     });
 
-    if (isDriverAd || isCargo || isSpam || isMetaInstructionMessage) {
-      await deleteFromSourceIfPossible(
-        isDriverAd
-          ? "Driver ad detected"
-          : isCargo
-            ? "Cargo/postal message detected"
-            : isSpam
-              ? "Spam detected"
-              : "Meta instruction message ignored"
-      );
+    const shouldDeleteIgnoredMessage =
+      isDriverAd ||
+      isCargo ||
+      isSpam ||
+      isMetaInstructionMessage ||
+      (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
+        (isAmbiguousRouteOnly ||
+          chatNoiseMessage ||
+          phoneDropMessage ||
+          commercialAdNoiseMessage ||
+          !hasHardPassengerSignal ||
+          !hasMinimumLeadDetails));
+
+    if (shouldDeleteIgnoredMessage) {
+      await deleteFromSourceIfPossible(ignoreReason);
     }
 
     return {
@@ -687,7 +899,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       provider: classification.provider,
       confidence: classification.confidence,
       status: LeadStatus.SENT,
-      hasHiddenSenderIdentity
+      hasHiddenSenderIdentity,
+      fareMentions
     });
 
     const messageToSend = env.SEND_FORMATTED_MESSAGE ? formattedMessage : originalText;
@@ -699,6 +912,32 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       status: LeadStatus.SENT,
       driverMessageId
     });
+
+    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
+      const passengerAck = buildPassengerAckMessage({
+        fromLocation,
+        toLocation,
+        passengerCount,
+        timeHint,
+        fareMentions
+      });
+
+      try {
+        await actions.notifyPassenger(passengerAck);
+        await writeInfo("Passenger private ack sent", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId
+        });
+      } catch (notifyError) {
+        await writeWarn("Passenger private ack failed", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId,
+          error: notifyError instanceof Error ? notifyError.message : String(notifyError)
+        });
+      }
+    }
 
     if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource) {
       try {
@@ -812,6 +1051,13 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
         driverMessageId: summaryMessage.message_id,
         forwardedOriginal: true
       };
+    },
+    notifyPassenger: async (textToPassenger) => {
+      if (!ctx.from?.id) {
+        return;
+      }
+
+      await ctx.api.sendMessage(ctx.from.id, textToPassenger);
     },
     deleteFromSource: async () => {
       await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);

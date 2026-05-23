@@ -115,6 +115,23 @@ function buildSourceMessageLink(sourceChatId: string, sourceMessageId: number, s
   return `https://t.me/c/${internalId}/${sourceMessageId}`;
 }
 
+function canDeleteMessagesInChat(entity: any): boolean {
+  if (!entity) {
+    return false;
+  }
+
+  if (entity.creator === true) {
+    return true;
+  }
+
+  const rights = entity.adminRights ?? entity.admin_rights;
+  if (!rights) {
+    return false;
+  }
+
+  return Boolean(rights.deleteMessages ?? rights.delete_messages);
+}
+
 async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text: string): Promise<void> {
   const inputChat = await event.getInputChat();
   if (!inputChat) {
@@ -464,10 +481,243 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
   };
 }
 
+async function buildUnifiedPayloadFromStoredMessage(
+  client: TelegramClient,
+  sourceChatIdNumber: number,
+  message: any
+): Promise<{ payload: UnifiedIncomingMessage; senderEntity: any | null } | null> {
+  const messageText = toText(message?.message).trim();
+  if (!messageText) {
+    return null;
+  }
+
+  const sourceChatId = String(sourceChatIdNumber);
+  const chat = await client.getEntity(sourceChatIdNumber).catch(() => null);
+  const senderEntity = await message?.getSender?.().catch(() => null);
+  const senderIdRaw = message?.senderId?.toString?.() ?? null;
+
+  const senderId = senderIdRaw ?? `chat:${sourceChatId}`;
+  const senderFullName = formatEntityName(senderEntity) || formatEntityName(chat) || senderId;
+  const senderUsername = toText((senderEntity as any)?.username || (senderEntity as any)?.usernames?.[0]?.username) || null;
+  const sourceChatUsername = toText((chat as any)?.username || (chat as any)?.usernames?.[0]?.username) || null;
+  const sourceChatTitle = formatEntityName(chat) || sourceChatId;
+
+  const payload: UnifiedIncomingMessage = {
+    sourceChatId,
+    sourceChatTitle,
+    sourceChatUsername,
+    sourceMessageId: Number(message?.id),
+    senderId,
+    senderFullName,
+    senderUsername,
+    text: messageText,
+    messageDate: getMessageDate(message?.date),
+    isForwarded: Boolean(message?.fwdFrom)
+  };
+
+  if (!Number.isInteger(payload.sourceMessageId) || payload.sourceMessageId <= 0) {
+    return null;
+  }
+
+  return {
+    payload,
+    senderEntity
+  };
+}
+
 export async function startUserbotListener(client: TelegramClient): Promise<void> {
   const state: ListenerState = { paused: false };
   const listenerStartedAtMs = Date.now();
   const ignoredSourceLogCache = new Set<number>();
+  const deleteCapabilityBySourceChat = new Map<number, boolean>();
+
+  const resolveDeleteCapability = async (sourceChatIdNumber: number): Promise<boolean> => {
+    const cached = deleteCapabilityBySourceChat.get(sourceChatIdNumber);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let canDelete = false;
+    try {
+      const entity = await client.getEntity(sourceChatIdNumber);
+      canDelete = canDeleteMessagesInChat(entity);
+    } catch (error) {
+      await writeWarn("Failed to resolve source delete permission", {
+        sourceChatId: String(sourceChatIdNumber),
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    deleteCapabilityBySourceChat.set(sourceChatIdNumber, canDelete);
+    await writeInfo("Source delete permission cached", {
+      sourceChatId: String(sourceChatIdNumber),
+      canDelete
+    });
+
+    return canDelete;
+  };
+
+  const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage): Promise<void> => {
+    const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, payload.sourceChatUsername);
+    if (sourceMessageLink) {
+      try {
+        await client.sendMessage(env.DRIVER_CHAT_ID, {
+          message: sourceMessageLink
+        });
+      } catch (linkSendError) {
+        await writeWarn("Failed to send source link fallback to driver chat", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          error: linkSendError instanceof Error ? linkSendError.message : String(linkSendError)
+        });
+      }
+    } else {
+      await writeWarn("Forward failed and no source link available, keeping info-only delivery", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId
+      });
+    }
+  };
+
+  const buildActions = (
+    payload: UnifiedIncomingMessage,
+    sourceChatIdNumber: number,
+    canDeleteFromSource: boolean,
+    resolveForwardFromPeer: () => Promise<any>,
+    resolveSenderEntity: () => Promise<any | null>
+  ): UnifiedMessageActions => {
+    const actions: UnifiedMessageActions = {
+      sendToDriver: async (formattedText, _originalText) => {
+        const sent = await client.sendMessage(env.DRIVER_CHAT_ID, {
+          message: formattedText
+        });
+        let forwardedOriginal = false;
+
+        try {
+          const fromPeer = await resolveForwardFromPeer();
+          await client.forwardMessages(env.DRIVER_CHAT_ID, {
+            messages: [payload.sourceMessageId],
+            fromPeer
+          });
+          forwardedOriginal = true;
+        } catch (forwardError) {
+          await writeWarn("Failed to forward original source message to driver chat", {
+            sourceChatId: payload.sourceChatId,
+            sourceMessageId: payload.sourceMessageId,
+            error: forwardError instanceof Error ? forwardError.message : String(forwardError)
+          });
+
+          await sendSourceLinkFallback(payload);
+        }
+
+        return {
+          driverMessageId: sent.id,
+          forwardedOriginal
+        };
+      },
+      notifyPassenger: async (textToPassenger) => {
+        if (payload.senderId.startsWith("chat:")) {
+          return;
+        }
+
+        const senderEntity = await resolveSenderEntity();
+        if (!senderEntity) {
+          return;
+        }
+
+        await client.sendMessage(senderEntity, {
+          message: textToPassenger
+        });
+      }
+    };
+
+    if (canDeleteFromSource) {
+      actions.deleteFromSource = async () => {
+        await client.deleteMessages(sourceChatIdNumber, [payload.sourceMessageId], {
+          revoke: true
+        });
+      };
+    }
+
+    return actions;
+  };
+
+  const runStartupBackfill = async (): Promise<void> => {
+    const startupLimit = Math.max(0, env.LISTENER_STARTUP_BACKFILL_LIMIT);
+    if (startupLimit === 0) {
+      return;
+    }
+
+    for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
+      try {
+        const canDeleteFromSource =
+          env.DELETE_SOURCE_MESSAGE_IF_ADMIN && env.STARTUP_BACKFILL_DELETE_SOURCE
+            ? await resolveDeleteCapability(sourceChatIdNumber)
+            : false;
+        const recent = await client.getMessages(sourceChatIdNumber, { limit: startupLimit });
+        const ordered = [...recent].filter(Boolean).sort((a: any, b: any) => Number(a?.id ?? 0) - Number(b?.id ?? 0));
+
+        let processedCount = 0;
+        let sentCount = 0;
+        let skippedCount = 0;
+        const skippedReasonCounter = new Map<string, number>();
+
+        for (const message of ordered) {
+          if (!message) {
+            continue;
+          }
+
+          if (message.out === true) {
+            continue;
+          }
+
+          const built = await buildUnifiedPayloadFromStoredMessage(client, sourceChatIdNumber, message);
+          if (!built) {
+            continue;
+          }
+
+          const actions = buildActions(
+            built.payload,
+            sourceChatIdNumber,
+            canDeleteFromSource,
+            async () => sourceChatIdNumber,
+            async () => built.senderEntity
+          );
+
+          const result = await processIncomingLead(built.payload, actions);
+          processedCount += 1;
+
+          if (result.processed) {
+            sentCount += 1;
+          } else {
+            skippedCount += 1;
+            const reason = result.reason ?? "Unknown";
+            skippedReasonCounter.set(reason, (skippedReasonCounter.get(reason) ?? 0) + 1);
+          }
+        }
+
+        const topSkippedReasons = [...skippedReasonCounter.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([reason, count]) => ({ reason, count }));
+
+        await writeInfo("Userbot startup backfill completed", {
+          sourceChatId: String(sourceChatIdNumber),
+          scanned: ordered.length,
+          limit: startupLimit,
+          processed: processedCount,
+          sent: sentCount,
+          skipped: skippedCount,
+          topSkippedReasons
+        });
+      } catch (error) {
+        await writeWarn("Userbot startup backfill failed for source chat", {
+          sourceChatId: String(sourceChatIdNumber),
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  };
 
   const handler = async (event: NewMessageEvent): Promise<void> => {
     try {
@@ -482,7 +732,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       }
 
       const eventDateMs = getMessageDate(event.message.date).getTime();
-      if (eventDateMs < listenerStartedAtMs - 5_000) {
+      const backfillWindowMs = Math.max(0, env.LISTENER_BACKFILL_SECONDS) * 1000;
+      if (eventDateMs < listenerStartedAtMs - backfillWindowMs) {
         return;
       }
 
@@ -492,7 +743,13 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         if (peerId) {
           try {
             const candidatePeer = toNumberId(getPeerId(peerId, true));
-            if (candidatePeer !== null && !ignoredSourceLogCache.has(candidatePeer)) {
+            const shouldIgnoreLog =
+              candidatePeer === null ||
+              candidatePeer === env.DRIVER_CHAT_ID ||
+              candidatePeer === env.ADMIN_TELEGRAM_ID ||
+              env.PASSENGER_CHAT_IDS.includes(candidatePeer);
+
+            if (!shouldIgnoreLog && !ignoredSourceLogCache.has(candidatePeer)) {
               ignoredSourceLogCache.add(candidatePeer);
               await writeInfo("Message ignored: source chat not in configured list", {
                 candidatePeerId: candidatePeer,
@@ -511,56 +768,14 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return;
       }
 
-      const actions: UnifiedMessageActions = {
-        sendToDriver: async (formattedText, _originalText) => {
-          const sent = await client.sendMessage(env.DRIVER_CHAT_ID, {
-            message: formattedText
-          });
-          let forwardedOriginal = false;
-
-          try {
-            const fromPeer = (await event.getInputChat()) ?? sourceChatIdNumber;
-            await client.forwardMessages(env.DRIVER_CHAT_ID, {
-              messages: [payload.sourceMessageId],
-              fromPeer
-            });
-            forwardedOriginal = true;
-          } catch (forwardError) {
-            await writeWarn("Failed to forward original source message to driver chat", {
-              sourceChatId: payload.sourceChatId,
-              sourceMessageId: payload.sourceMessageId,
-              error: forwardError instanceof Error ? forwardError.message : String(forwardError)
-            });
-
-            const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, payload.sourceChatUsername);
-            await client.sendMessage(env.DRIVER_CHAT_ID, {
-              message: [
-                "Forward qilib bo'lmadi. Nusxa xabar:",
-                `Source: ${payload.sourceChatTitle}`,
-                `Source message: ${payload.sourceChatId}/${payload.sourceMessageId}`,
-                sourceMessageLink ? `Source link: ${sourceMessageLink}` : null,
-                "",
-                payload.text
-              ]
-                .filter(Boolean)
-                .join("\n")
-            });
-          }
-
-          return {
-            driverMessageId: sent.id,
-            forwardedOriginal
-          };
-        }
-      };
-
-      if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN) {
-        actions.deleteFromSource = async () => {
-          await client.deleteMessages(sourceChatIdNumber, [payload.sourceMessageId], {
-            revoke: true
-          });
-        };
-      }
+      const canDeleteFromSource = env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? await resolveDeleteCapability(sourceChatIdNumber) : false;
+      const actions = buildActions(
+        payload,
+        sourceChatIdNumber,
+        canDeleteFromSource,
+        async () => (await event.getInputChat()) ?? sourceChatIdNumber,
+        async () => await event.message.getSender().catch(() => null)
+      );
 
       const result = await processIncomingLead(payload, actions);
 
@@ -588,6 +803,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       incoming: true
     })
   );
+
+  await runStartupBackfill();
 
   await writeInfo("Userbot listener started", {
     sourceChats: env.PASSENGER_CHAT_IDS,

@@ -64,8 +64,21 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 12. AI xato bo'lsa rule-based fallback
 13. Lead bo'lsa driver chatga formatlangan yuborish
 14. `DELETE_SOURCE_MESSAGE_IF_ADMIN=true` bo'lsa source xabarni o'chirishga urinish
-15. Permission bo'lmasa crash qilmasdan log yozish
-16. Lead statusni DB ga yozish
+15. `DELETE_IGNORED_MESSAGE_IF_ADMIN=true` bo'lsa `IGNORED` (noise/spam/reklama) xabarlarni ham source'dan o'chirishga urinish
+16. `SEND_PRIVATE_ACK_TO_PASSENGER=true` bo'lsa xabar egasining lichkasiga tasdiq xabari yuborish
+17. `LISTENER_BACKFILL_SECONDS` orqali restartdan oldingi so'nggi xabarlarni ham ushlash (default: 180s)
+18. `LISTENER_STARTUP_BACKFILL_LIMIT` orqali app ishga tushganda har source chatdan oxirgi N ta xabarni qayta tekshirish (default: 20)
+19. `STARTUP_BACKFILL_DELETE_SOURCE=false` bo'lsa startup backfill paytida source xabarlar o'chirilmaydi (faqat tekshiriladi/yuboriladi)
+20. Permission bo'lmasa crash qilmasdan log yozish
+21. Lead statusni DB ga yozish
+
+## Server barqarorlik sozlamalari
+- `TELEGRAM_USE_WSS=true` — Telegram bilan 443 orqali ulanish (ko'p serverlarda 80 ga nisbatan barqarorroq).
+- `TELEGRAM_CONNECTION_RETRIES=-1` — ulanish xatolarida cheksiz retry.
+- `TELEGRAM_RECONNECT_RETRIES=-1` — reconnect cheksiz.
+- `TELEGRAM_RETRY_DELAY_MS=2000` — reconnect oralig'i.
+- `TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS=0` — startup connect cheksiz urinadi (`0` = infinite).
+- `TELEGRAM_STARTUP_CONNECT_RETRY_MS=5000` — startup retry oralig'i.
 
 ## Admin commandlar (faqat `ADMIN_TELEGRAM_ID`)
 Userbot commandlari:
