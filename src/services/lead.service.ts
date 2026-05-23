@@ -28,6 +28,8 @@ export interface UnifiedIncomingMessage {
   senderId: string;
   senderFullName: string;
   senderUsername: string | null;
+  isSourceAdmin?: boolean;
+  isDriverChatMember?: boolean;
   text: string;
   messageDate: Date;
   isForwarded?: boolean;
@@ -683,6 +685,10 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const hasMinimumLeadDetails = Boolean(phone) || hasRouteDetails;
   const isMetaInstructionMessage = metaInstructionHits.length >= 2 && !hasMinimumLeadDetails;
   const hasHiddenSenderIdentity = payload.senderId.startsWith("chat:") || (!payload.senderUsername && !phone);
+  const hiddenWithoutContactIdentity = hasHiddenSenderIdentity && !payload.senderUsername && !phone;
+  const isSourceAdmin = payload.isSourceAdmin === true;
+  const isDriverChatMember = payload.isDriverChatMember === true;
+  const isProtectedFromDeletion = isSourceAdmin || isDriverChatMember;
   const hasHardPassengerSignal = keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules);
   const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText) || PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX.test(originalText);
   const hasTaxiNeedIntent = TAXI_NEED_INTENT_REGEX.test(originalText);
@@ -730,6 +736,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       shouldSendByRoutePassengerPattern ||
       shouldSendByTaxiNeedPhone ||
       shouldSendByRouteFareInquiry) &&
+    hasMinimumLeadDetails &&
+    !hiddenWithoutContactIdentity &&
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
     !isDriverAd &&
@@ -753,6 +761,10 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     hasMinimumLeadDetails,
     isMetaInstructionMessage,
     hasHiddenSenderIdentity,
+    hiddenWithoutContactIdentity,
+    isSourceAdmin,
+    isDriverChatMember,
+    isProtectedFromDeletion,
     hasHardPassengerSignal,
     hasTaxiNeedIntent,
     chatNoiseMessage,
@@ -801,8 +813,10 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         ? "Spam detected"
         : isAmbiguousRouteOnly
           ? "Ambiguous route-only message"
-          : isMetaInstructionMessage
-            ? "Meta instruction message ignored"
+        : isMetaInstructionMessage
+          ? "Meta instruction message ignored"
+          : hiddenWithoutContactIdentity
+            ? "Hidden sender without username/phone"
             : chatNoiseMessage
               ? "Chat noise message ignored"
               : phoneDropMessage
@@ -831,17 +845,19 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     });
 
     const shouldDeleteIgnoredMessage =
-      isDriverAd ||
-      isCargo ||
-      isSpam ||
-      isMetaInstructionMessage ||
-      (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
-        (isAmbiguousRouteOnly ||
-          chatNoiseMessage ||
-          phoneDropMessage ||
-          commercialAdNoiseMessage ||
-          !hasHardPassengerSignal ||
-          !hasMinimumLeadDetails));
+      !isProtectedFromDeletion &&
+      (isDriverAd ||
+        isCargo ||
+        isSpam ||
+        isMetaInstructionMessage ||
+        (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
+          (isAmbiguousRouteOnly ||
+            hiddenWithoutContactIdentity ||
+            chatNoiseMessage ||
+            phoneDropMessage ||
+            commercialAdNoiseMessage ||
+            !hasHardPassengerSignal ||
+            !hasMinimumLeadDetails)));
 
     if (shouldDeleteIgnoredMessage) {
       await deleteFromSourceIfPossible(ignoreReason);
@@ -939,7 +955,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       }
     }
 
-    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource) {
+    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource && !isProtectedFromDeletion) {
       try {
         await actions.deleteFromSource();
 
@@ -966,6 +982,15 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
 
         return { processed: true, reason: "Sent but source delete not permitted" };
       }
+    }
+
+    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource && isProtectedFromDeletion) {
+      await writeInfo("Source message kept (protected sender)", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        isSourceAdmin,
+        isDriverChatMember
+      });
     }
 
     if (!sendResult.forwardedOriginal) {
@@ -1039,6 +1064,8 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     senderId,
     senderFullName,
     senderUsername: ctx.from?.username ?? null,
+    isSourceAdmin: ctx.from?.id === env.ADMIN_TELEGRAM_ID,
+    isDriverChatMember: false,
     text,
     messageDate: new Date(msg.date * 1000),
     isForwarded: isForwardedMessage(msg)

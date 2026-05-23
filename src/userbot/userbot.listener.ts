@@ -1,5 +1,6 @@
 import { NewMessage, type NewMessageEvent } from "telegram/events/NewMessage.js";
 import { getPeerId } from "telegram/Utils.js";
+import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
 import { LeadStatus } from "@prisma/client";
 import { env } from "../config/env.js";
@@ -33,6 +34,15 @@ function toText(value: unknown): string {
 function toNumericId(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function toPositiveUserId(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
     return null;
   }
 
@@ -475,6 +485,8 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
     senderId,
     senderFullName,
     senderUsername,
+    isSourceAdmin: false,
+    isDriverChatMember: false,
     text: messageText,
     messageDate: getMessageDate(event.message.date),
     isForwarded: Boolean((event.message as any).fwdFrom)
@@ -510,6 +522,8 @@ async function buildUnifiedPayloadFromStoredMessage(
     senderId,
     senderFullName,
     senderUsername,
+    isSourceAdmin: false,
+    isDriverChatMember: false,
     text: messageText,
     messageDate: getMessageDate(message?.date),
     isForwarded: Boolean(message?.fwdFrom)
@@ -530,6 +544,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   const listenerStartedAtMs = Date.now();
   const ignoredSourceLogCache = new Set<number>();
   const deleteCapabilityBySourceChat = new Map<number, boolean>();
+  const sourceAdminByChatAndUser = new Map<string, boolean>();
+  const driverMembershipByUser = new Map<number, boolean>();
 
   const resolveDeleteCapability = async (sourceChatIdNumber: number): Promise<boolean> => {
     const cached = deleteCapabilityBySourceChat.get(sourceChatIdNumber);
@@ -555,6 +571,57 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     });
 
     return canDelete;
+  };
+
+  const resolveSenderProtectionFlags = async (
+    sourceChatIdNumber: number,
+    senderId: string
+  ): Promise<{ isSourceAdmin: boolean; isDriverChatMember: boolean }> => {
+    const senderUserId = toPositiveUserId(senderId);
+    if (senderUserId === null) {
+      return { isSourceAdmin: false, isDriverChatMember: false };
+    }
+
+    if (env.ADMIN_TELEGRAM_ID && senderUserId === env.ADMIN_TELEGRAM_ID) {
+      return { isSourceAdmin: true, isDriverChatMember: false };
+    }
+
+    const sourceAdminCacheKey = `${sourceChatIdNumber}:${senderUserId}`;
+    let isSourceAdmin = sourceAdminByChatAndUser.get(sourceAdminCacheKey);
+    if (isSourceAdmin === undefined) {
+      try {
+        const participantResult = await client.invoke(
+          new Api.channels.GetParticipant({
+            channel: sourceChatIdNumber,
+            participant: senderUserId
+          })
+        );
+        const participant = participantResult.participant;
+        isSourceAdmin = participant instanceof Api.ChannelParticipantAdmin || participant instanceof Api.ChannelParticipantCreator;
+      } catch {
+        isSourceAdmin = false;
+      }
+      sourceAdminByChatAndUser.set(sourceAdminCacheKey, isSourceAdmin);
+    }
+
+    let isDriverChatMember = driverMembershipByUser.get(senderUserId);
+    if (isDriverChatMember === undefined) {
+      try {
+        const participantResult = await client.invoke(
+          new Api.channels.GetParticipant({
+            channel: env.DRIVER_CHAT_ID,
+            participant: senderUserId
+          })
+        );
+        const participant = participantResult.participant;
+        isDriverChatMember = !(participant instanceof Api.ChannelParticipantLeft || participant instanceof Api.ChannelParticipantBanned);
+      } catch {
+        isDriverChatMember = false;
+      }
+      driverMembershipByUser.set(senderUserId, isDriverChatMember);
+    }
+
+    return { isSourceAdmin, isDriverChatMember };
   };
 
   const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage): Promise<void> => {
@@ -676,6 +743,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             continue;
           }
 
+          const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, built.payload.senderId);
+          built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
+          built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
+
           const actions = buildActions(
             built.payload,
             sourceChatIdNumber,
@@ -767,6 +838,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       if (sourceChatIdNumber === null) {
         return;
       }
+
+      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, payload.senderId);
+      payload.isSourceAdmin = senderFlags.isSourceAdmin;
+      payload.isDriverChatMember = senderFlags.isDriverChatMember;
 
       const canDeleteFromSource = env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? await resolveDeleteCapability(sourceChatIdNumber) : false;
       const actions = buildActions(
