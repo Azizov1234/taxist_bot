@@ -661,14 +661,19 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           message: formattedText
         });
         let forwardedOriginal = false;
+        let forwardedContactVisible = false;
 
         try {
           const fromPeer = await resolveForwardFromPeer();
-          await client.forwardMessages(env.DRIVER_CHAT_ID, {
+          const forwardedMessages = await client.forwardMessages(env.DRIVER_CHAT_ID, {
             messages: [payload.sourceMessageId],
             fromPeer
           });
           forwardedOriginal = true;
+
+          const firstForwardedMessage = Array.isArray(forwardedMessages) ? forwardedMessages[0] : null;
+          const forwardedFromId = (firstForwardedMessage as any)?.fwdFrom?.fromId;
+          forwardedContactVisible = forwardedFromId instanceof Api.PeerUser;
         } catch (forwardError) {
           await writeWarn("Failed to forward original source message to driver chat", {
             sourceChatId: payload.sourceChatId,
@@ -681,7 +686,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
         return {
           driverMessageId: sent.id,
-          forwardedOriginal
+          forwardedOriginal,
+          forwardedContactVisible
         };
       },
       notifyPassenger: async (textToPassenger) => {

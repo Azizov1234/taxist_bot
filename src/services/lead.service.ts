@@ -18,6 +18,7 @@ export interface ProcessMessageResult {
 export interface DriverSendResult {
   driverMessageId: number;
   forwardedOriginal: boolean;
+  forwardedContactVisible?: boolean;
 }
 
 export interface UnifiedIncomingMessage {
@@ -127,7 +128,8 @@ const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
   /\b(?:Р±РѕСЂРёС€ РєРµСЂР°Рє|РєРµС‚РёС€ РєРµСЂР°Рє|Р№СћР»РѕРІС‡Рё Р±РѕСЂ|Р№СѓР»РѕРІС‡Рё Р±РѕСЂ)\b/iu
 ];
 const PASSENGER_SOFT_SIGNAL_REGEX = /\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b/iu;
-const PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX = /\b(?:\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438)\b/iu;
+const PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX =
+  /(?:^|[^\p{L}\p{N}])(?:\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438)(?=$|[^\p{L}\p{N}])/iu;
 const TAXI_NEED_INTENT_REGEX =
   /\b(?:taxi|taksi|takis|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:kerak|kere|kk|krk|bormi|bori?mi|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu;
 const CHAT_NOISE_PATTERNS: RegExp[] = [
@@ -318,7 +320,10 @@ function extractRouteParts(route: string | null): { from: string | null; to: str
 }
 
 function extractPassengerCount(text: string): number | null {
-  const regexes = [/\b(\d{1,2})\s*(?:ta\s*)?(?:kishi|odam)\b/iu, /\b(?:kishi|odam)\s*(\d{1,2})\b/iu];
+  const regexes = [
+    /(?:^|[^\p{L}\p{N}])(\d{1,2})\s*(?:ta\s*)?(?:kishi|odam|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c)(?=$|[^\p{L}\p{N}])/iu,
+    /(?:^|[^\p{L}\p{N}])(?:kishi|odam|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c)\s*(\d{1,2})(?=$|[^\p{L}\p{N}])/iu
+  ];
 
   for (const regex of regexes) {
     const match = text.match(regex);
@@ -514,6 +519,20 @@ function buildPrivateFormatHintMessage(): string {
   ].join("\n");
 }
 
+function buildPrivateForwardSecretHintMessage(): string {
+  return [
+    "⚠️ Muhim eslatma",
+    "Xabaringiz yuborildi, lekin haydovchilar siz bilan bog'lana olmasligi mumkin.",
+    "Sabab: username va telefon ko'rsatilmagan, forwardda profilingiz yopiq (secret) bo'lishi mumkin.",
+    "",
+    "Iltimos, quyidagilardan bittasini qiling:",
+    "1) Telegram username qo'shing",
+    "2) Telefon raqamingizni xabarda yozing",
+    "",
+    "Shunda haydovchilar siz bilan tezroq bog'lanadi."
+  ].join("\n");
+}
+
 function buildDriverPremiumJoinLine(): string {
   if (env.DRIVER_PREMIUM_GROUP_LINK) {
     return `👉 Pullik Drivers guruhiga qo'shiling: ${env.DRIVER_PREMIUM_GROUP_LINK}`;
@@ -536,7 +555,13 @@ function buildDriverAdMembershipRequiredPrivateMessage(): string {
     "Siz pullik Drivers guruhida emassiz.",
     buildDriverPremiumJoinLine(),
     "",
-    "A'zo bo'lgach, haydovchi e'lonlari guruhda qoladi."
+    "Tariflar:",
+    "🗓 15 kunga 20 ming so'm 💸",
+    "🗓 1 oyga 40 ming so'm 💸",
+    "🗓 3 oyga skidkada 100 ming so'm 💸",
+    "🗓 6 oyga 150 ming so'm 💸",
+    "",
+    "Lichkaga yozing. A'zo bo'lgach, haydovchi e'lonlari guruhda qoladi."
   ].join("\n");
 }
 
@@ -1114,7 +1139,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       driverMessageId
     });
 
-    const canDriversContactPassenger = !payload.senderId.startsWith("chat:") || Boolean(payload.senderUsername) || Boolean(phone);
+    const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(phone) || Boolean(sendResult.forwardedContactVisible);
     if (
       env.SEND_PRIVATE_ACK_TO_PASSENGER &&
       actions.notifyPassenger &&
@@ -1142,6 +1167,29 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
           sourceMessageId: payload.sourceMessageId,
           senderId: payload.senderId,
           error: notifyError instanceof Error ? notifyError.message : String(notifyError)
+        });
+      }
+    }
+
+    if (
+      env.SEND_PRIVATE_ACK_TO_PASSENGER &&
+      actions.notifyPassenger &&
+      !payload.senderId.startsWith("chat:") &&
+      !canDriversContactPassenger
+    ) {
+      try {
+        await actions.notifyPassenger(buildPrivateForwardSecretHintMessage());
+        await writeInfo("Passenger private contact hint sent (forward hidden)", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId
+        });
+      } catch (notifyContactHintError) {
+        await writeWarn("Passenger private contact hint failed", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId,
+          error: notifyContactHintError instanceof Error ? notifyContactHintError.message : String(notifyContactHintError)
         });
       }
     }
@@ -1276,7 +1324,8 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
       const summaryMessage = await ctx.api.sendMessage(env.DRIVER_CHAT_ID, formattedText);
       return {
         driverMessageId: summaryMessage.message_id,
-        forwardedOriginal: true
+        forwardedOriginal: true,
+        forwardedContactVisible: false
       };
     },
     notifyPassenger: async (textToPassenger) => {
