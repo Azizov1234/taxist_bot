@@ -69,6 +69,7 @@ const optionalChatIdSchema = z.preprocess(
 
 const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
 const runtimeModeSchema = z.enum(["userbot", "legacy"]);
+const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
 const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
 
 export type AIProviderName = z.infer<typeof aiProviderNameSchema>;
@@ -82,6 +83,14 @@ const envSchema = z.object({
   TELEGRAM_STRING_SESSION: z.preprocess((value) => (value === undefined ? "" : String(value).trim()), z.string()),
   TELEGRAM_BOT_TOKEN: optionalStringSchema,
   TELEGRAM_USE_WSS: optionalBooleanSchema,
+  TELEGRAM_FORCE_SMS: optionalBooleanSchema,
+  TELEGRAM_LOGIN_MODE: z.preprocess(
+    (value) => {
+      const sanitized = emptyToUndefined(value);
+      return sanitized === undefined ? undefined : String(sanitized).trim().toLowerCase();
+    },
+    telegramLoginModeSchema.optional()
+  ),
   TELEGRAM_CONNECTION_RETRIES: optionalNumberSchema,
   TELEGRAM_RECONNECT_RETRIES: optionalNumberSchema,
   TELEGRAM_RETRY_DELAY_MS: optionalNumberSchema,
@@ -215,6 +224,8 @@ const aiCooldownMinutes = parsed.data.AI_COOLDOWN_MINUTES ?? 10;
 const aiTimeoutMs = parsed.data.AI_TIMEOUT_MS ?? 15_000;
 const aiMaxRetries = Math.max(0, Math.round(parsed.data.AI_MAX_RETRIES ?? 1));
 const telegramUseWss = parsed.data.TELEGRAM_USE_WSS ?? true;
+const telegramLoginMode = parsed.data.TELEGRAM_LOGIN_MODE ?? ((parsed.data.TELEGRAM_FORCE_SMS ?? false) ? "sms" : "auto");
+const telegramForceSms = telegramLoginMode === "sms";
 const normalizeRetryCount = (value: number | undefined, fallback: number): number => {
   if (value === undefined) {
     return fallback;
@@ -288,6 +299,8 @@ export const env = {
   TELEGRAM_STRING_SESSION: parsed.data.TELEGRAM_STRING_SESSION,
   TELEGRAM_BOT_TOKEN: parsed.data.TELEGRAM_BOT_TOKEN,
   TELEGRAM_USE_WSS: telegramUseWss,
+  TELEGRAM_LOGIN_MODE: telegramLoginMode,
+  TELEGRAM_FORCE_SMS: telegramForceSms,
   TELEGRAM_CONNECTION_RETRIES: telegramConnectionRetries,
   TELEGRAM_RECONNECT_RETRIES: telegramReconnectRetries,
   TELEGRAM_RETRY_DELAY_MS: Math.round(telegramRetryDelayMs),
