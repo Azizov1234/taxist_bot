@@ -7,6 +7,7 @@
     "dev": "tsx src/main.ts",
     "start:dev": "tsx src/main.ts",
     "clean:logs": "tsx scripts/clean-logs.ts",
+    "server:deploy": "bash scripts/deploy-server.sh",
     "doctor": "tsx scripts/doctor.ts",
     "build": "tsc",
     "start": "node dist/main.js",

@@ -42,6 +42,7 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `npm run dev` - default userbot (`src/main.ts`)
 - `npm run build` - TypeScript build
 - `npm run start` - `dist/main.js` ishga tushirish
+- `npm run server:deploy` - serverda `pull + install + prisma + build + restart`
 - `npm run get:ids` - dialoglar ro'yxati (`chat title => chat id`)
 - `npm run prisma:generate`
 - `npm run prisma:migrate`
@@ -95,3 +96,24 @@ Userbot commandlari:
 - `.last 10`
 
 Legacy grammY `/` commandlari ham kodda saqlangan.
+
+## Serverga pull va ishga tushirish
+1. Serverda loyihaga kiring: `cd /path/to/taxi-bot`
+2. `.env` yarating: `cp .env.example .env`
+3. `.env` ichida shu maydonlarni to'ldiring:
+   - `TELEGRAM_API_ID`
+   - `TELEGRAM_API_HASH`
+   - `TELEGRAM_STRING_SESSION`
+   - `PASSENGER_CHAT_IDS`
+   - `DRIVER_CHAT_ID`
+   - `ADMIN_TELEGRAM_ID`
+   - `DATABASE_URL`
+4. Deploy qiling: `npm run server:deploy`
+
+Qo'lda deploy qilish kerak bo'lsa:
+1. `git pull --ff-only origin main`
+2. `npm ci`
+3. `npx prisma generate`
+4. `npx prisma migrate deploy`
+5. `npm run build`
+6. `npm run start`
