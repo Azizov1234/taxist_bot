@@ -170,6 +170,8 @@ export const DRIVER_AD_NEGATIVE_KEYWORDS = [
   "mashinam bor",
   "moshina bor",
   "moshinam bor",
+  "taxi bor",
+  "taksi bor",
   "avto bor",
   "tayyor moshina bor",
   "tayyor moshina",

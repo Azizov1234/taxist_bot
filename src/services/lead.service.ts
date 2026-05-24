@@ -56,17 +56,38 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   },
   { id: "odam_pochta_bolsa_olamiz", pattern: /\b(?:odam|pochta|yuk)\b.{0,20}\bbo'?l(?:sa|sayam?)\b.{0,20}\b(?:olaman|olamiz)\b/iu },
   {
+    id: "odam_pochta_olamiz_direct",
+    pattern:
+      /\b(?:odam|pochta|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)\b.{0,24}\b(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)\b/iu
+  },
+  {
     id: "yuramiz_odam_pochta",
     pattern: /\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz|jo'?nayman|jo'?naymiz)\b.{0,40}\b(?:odam|pochta|yuk)\b.{0,20}\b(?:olaman|olamiz)\b/iu
+  },
+  {
+    id: "passenger_take_cyrillic",
+    pattern:
+      /\b(?:yo'?lovchi|yolovchi|yulovchi|mijoz|klient|passajir|\u043f\u0430\u0441\u0441\u0430\u0436\u0438\u0440|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043c\u0438\u0436\u043e\u0437)\b.{0,20}\b(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)\b/iu
   },
   {
     id: "taksi_bor_olib_ketamz",
     pattern:
       /\b(?:taxi|taksi)\b.{0,30}\bbor\b.{0,30}\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b(?:.{0,20}\bbo'?lsa\b)?(?:.{0,30}\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b)/iu
   },
-  { id: "joy_bor", pattern: /\b(?:bo'?sh|bosh)?\s*joy(?:lar)?\s*bor\b/iu },
+  { id: "taksi_bor", pattern: /\b(?:taxi|taksi)\s*bor\b/iu },
+  { id: "joy_bor", pattern: /\b(?:\d{1,2}\s*(?:ta\s*)?)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu },
+  {
+    id: "joy_bor_cyrillic",
+    pattern:
+      /\b(?:\d{1,2}\s*(?:\u0442\u0430\s*)?)?(?:\u0431[\u045e\u0443]\u0448\s*)?(?:\u0436\u043e\u0439|\u043c\u0435\u0441\u0442[\u0430\u043e])(?:\u0438\u043c|\u0438\u043c\u0438\u0437|\u043b\u0430\u0440\u0438)?\s*\u0431\u043e\u0440\b/iu
+  },
   { id: "mashina_bor", pattern: /\b(?:mashina|moshina|avto)\s*bor\b/iu },
   { id: "avto_model_ad", pattern: /\b(?:avto|mashina|moshina)\b.{0,12}\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  {
+    id: "avto_model_with_passenger_signal",
+    pattern:
+      /\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f)\b.{0,28}\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|joy|pochta|yuk|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043f\u043e\u0447\u0442\u0430)\b/iu
+  },
   { id: "private_dm_ad", pattern: /\b(?:lichka|lichkaga|lichkadan|lichku)\b/iu },
   { id: "ketadiganlar_bolsa", pattern: /\bketadiganlar?\s*bo'?lsa\b/iu },
   { id: "reklama", pattern: /\b(reklama|РґРѕСЃС‚Р°РІРєР°|dostavka|xizmat ko'?rsatamiz|taxi xizmati|С‚Р°РєСЃРё С…РёР·РјР°С‚Рё)\b/iu },
@@ -460,7 +481,7 @@ function buildPassengerAckMessage(params: {
 function buildSourceFormatHintMessage(): string {
   return [
     "⚠️ Xabar qabul qilinmadi",
-    "Username yoki telefon ko'rsatilmagan.",
+    "Username (@username) yoki telefon ko'rsatilmagan.",
     "Iltimos, xabarni quyidagi formatda qayta yozing:",
     "",
     "🚕 Taxi kerak",
@@ -472,23 +493,49 @@ function buildSourceFormatHintMessage(): string {
 }
 
 function buildPrivateFormatHintMessage(): string {
+  const helpGroupLine = env.PASSENGER_HELP_GROUP_LINK
+    ? `🔗 Guruhimiz: ${env.PASSENGER_HELP_GROUP_LINK}`
+    : "🔗 Guruhimiz linkini admin sizga yuboradi.";
+
   return [
     "⚠️ Xabaringiz qabul qilinmadi",
-    "Username yoki telefon ko'rsatilmagan.",
+    "Username (@username) yoki telefon ko'rsatilmagan.",
     "",
     "Iltimos, quyidagicha yuboring:",
     "🚕 Taxi kerak",
     "📍 Yo'nalish: Qayerdan -> Qayerga",
     "📞 Telefon: +998XXXXXXXXX",
     "🕒 Vaqt: hozir / soat 18:30",
-    "👥 Odam soni: 1-2 ta"
+    "👥 Odam soni: 1-2 ta",
+    "",
+    "Bizda haydovchilar tezroq javob berishi uchun to'liq format muhim.",
+    helpGroupLine
   ].join("\n");
 }
 
-function buildDriverAdBlockedMessage(): string {
+function buildDriverPremiumJoinLine(): string {
+  if (env.DRIVER_PREMIUM_GROUP_LINK) {
+    return `👉 Pullik Drivers guruhiga qo'shiling: ${env.DRIVER_PREMIUM_GROUP_LINK}`;
+  }
+
+  return "👉 Pullik Drivers guruhiga qo'shilish uchun admin bilan bog'laning.";
+}
+
+function buildDriverAdMembershipRequiredSourceMessage(): string {
   return [
-    "🚫 Bu guruhda haydovchi reklama xabarlari taqiqlangan.",
-    "Faqat yo'lovchi so'rovlarini yuboring."
+    "🚫 Haydovchi e'loni Drivers kanaliga yuborilmadi.",
+    "Bu turdagi xabar uchun pullik Drivers guruh a'zoligi talab qilinadi.",
+    buildDriverPremiumJoinLine()
+  ].join("\n");
+}
+
+function buildDriverAdMembershipRequiredPrivateMessage(): string {
+  return [
+    "🚫 Haydovchi e'loningiz qabul qilinmadi.",
+    "Siz pullik Drivers guruhida emassiz.",
+    buildDriverPremiumJoinLine(),
+    "",
+    "A'zo bo'lgach, haydovchi e'lonlari guruhda qoladi."
   ].join("\n");
 }
 
@@ -700,20 +747,15 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const timeHint = classification.timeHint ?? timeHintFromRules;
   const fareMentions = extractFareMentions(originalText);
 
-  const aiOnlyDriverAd = classification.isDriverAd && driverAdHits.length === 0 && driverAdPatternHits.length === 0;
   const hasCommercialVerb = DRIVER_COMMERCIAL_VERB_REGEX.test(originalText);
   const hasCommercialContext = DRIVER_COMMERCIAL_CONTEXT_REGEX.test(classification.normalizedText);
-  const looksLikeDriverCommercial = hasCommercialVerb && (hasCommercialContext || Boolean(phone));
+  const looksLikeDriverCommercial = hasCommercialVerb && hasCommercialContext && !strongPassengerIntent;
   const categoryIsPassenger = classification.category === "PASSENGER_LEAD";
   const categoryIsDriver = classification.category === "DRIVER_AD";
   const categoryIsCargo = classification.category === "POSTAL_CARGO";
   const categoryIsSpam = classification.category === "IGNORE_SPAM";
-  const isDriverAd =
-    categoryIsDriver ||
-    driverAdHits.length > 0 ||
-    driverAdPatternHits.length > 0 ||
-    looksLikeDriverCommercial ||
-    (classification.isDriverAd && !(aiOnlyDriverAd && strongPassengerIntent));
+  const hasExplicitDriverAdSignal = driverAdHits.length > 0 || driverAdPatternHits.length > 0;
+  const isDriverAd = hasExplicitDriverAdSignal || looksLikeDriverCommercial || (categoryIsDriver && hasExplicitDriverAdSignal);
   const isSpam = categoryIsSpam || classification.isSpam || spamByRules;
   const isCargo = categoryIsCargo;
   const isRouteFareInquiry = Boolean(routeFromRules) && priceQueryHits.length > 0;
@@ -724,6 +766,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const senderIsHiddenByTelegram = payload.senderId.startsWith("chat:");
   const hasHiddenSenderIdentity = senderIsHiddenByTelegram;
   const hiddenWithoutContactIdentity = senderIsHiddenByTelegram && !payload.senderUsername && !phone;
+  const missingDriverContactIdentity = senderIsHiddenByTelegram && !payload.senderUsername && !phone;
   const isSourceAdmin = payload.isSourceAdmin === true;
   const isDriverChatMember = payload.isDriverChatMember === true;
   const isProtectedFromDeletion = isSourceAdmin || isDriverChatMember;
@@ -742,6 +785,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     hasRouteDetails ||
     keywordResult.score >= 2;
   const shouldSendSourceFormatHint =
+    hasHiddenSenderIdentity &&
     !payload.senderUsername &&
     !phone &&
     taxiRelatedCandidateMessage &&
@@ -751,6 +795,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     !isCargo &&
     !isMetaInstructionMessage;
   const shouldSendPrivateFormatHint =
+    hasHiddenSenderIdentity &&
     !payload.senderId.startsWith("chat:") &&
     !payload.senderUsername &&
     !phone &&
@@ -801,6 +846,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       shouldSendByTaxiNeedPhone ||
       shouldSendByRouteFareInquiry) &&
     hasMinimumLeadDetails &&
+    !missingDriverContactIdentity &&
     !hiddenWithoutContactIdentity &&
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
@@ -826,6 +872,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     isMetaInstructionMessage,
     hasHiddenSenderIdentity,
     hiddenWithoutContactIdentity,
+    missingDriverContactIdentity,
     isSourceAdmin,
     isDriverChatMember,
     isProtectedFromDeletion,
@@ -879,6 +926,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
           ? "Ambiguous route-only message"
         : isMetaInstructionMessage
           ? "Meta instruction message ignored"
+          : missingDriverContactIdentity
+            ? "Missing username/phone for driver contact"
           : hiddenWithoutContactIdentity
             ? "Hidden sender without username/phone"
             : chatNoiseMessage
@@ -908,19 +957,39 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       errorMessage: ignoreReason
     });
 
-    if (isDriverAd && actions.notifySourceChat && !payload.isStartupBackfill && !isProtectedFromDeletion) {
-      try {
-        await actions.notifySourceChat(buildDriverAdBlockedMessage());
-        await writeInfo("Driver ad warning sent", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId
-        });
-      } catch (driverAdWarnError) {
-        await writeWarn("Failed to send driver ad warning", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          error: driverAdWarnError instanceof Error ? driverAdWarnError.message : String(driverAdWarnError)
-        });
+    if (isDriverAd && !payload.isStartupBackfill && !isProtectedFromDeletion) {
+      if (actions.notifySourceChat) {
+        try {
+          await actions.notifySourceChat(buildDriverAdMembershipRequiredSourceMessage());
+          await writeInfo("Driver ad source warning sent", {
+            sourceChatId: payload.sourceChatId,
+            sourceMessageId: payload.sourceMessageId
+          });
+        } catch (driverAdWarnError) {
+          await writeWarn("Failed to send driver ad source warning", {
+            sourceChatId: payload.sourceChatId,
+            sourceMessageId: payload.sourceMessageId,
+            error: driverAdWarnError instanceof Error ? driverAdWarnError.message : String(driverAdWarnError)
+          });
+        }
+      }
+
+      if (actions.notifySourceChat && actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
+        try {
+          await actions.notifyPassenger(buildDriverAdMembershipRequiredPrivateMessage());
+          await writeInfo("Driver ad private warning sent", {
+            sourceChatId: payload.sourceChatId,
+            sourceMessageId: payload.sourceMessageId,
+            senderId: payload.senderId
+          });
+        } catch (driverAdPrivateWarnError) {
+          await writeWarn("Failed to send driver ad private warning", {
+            sourceChatId: payload.sourceChatId,
+            sourceMessageId: payload.sourceMessageId,
+            senderId: payload.senderId,
+            error: driverAdPrivateWarnError instanceof Error ? driverAdPrivateWarnError.message : String(driverAdPrivateWarnError)
+          });
+        }
       }
     }
 
@@ -965,13 +1034,14 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         isSpam ||
         isMetaInstructionMessage ||
         (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
+          taxiRelatedCandidateMessage &&
           (isAmbiguousRouteOnly ||
             shouldSendSourceFormatHint ||
             chatNoiseMessage ||
             phoneDropMessage ||
             commercialAdNoiseMessage ||
-            (taxiRelatedCandidateMessage && !hasHardPassengerSignal) ||
-            (taxiRelatedCandidateMessage && !hasMinimumLeadDetails))));
+            !hasHardPassengerSignal ||
+            !hasMinimumLeadDetails)));
 
     if (shouldDeleteIgnoredMessage) {
       await deleteFromSourceIfPossible(ignoreReason);
@@ -1043,8 +1113,13 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       driverMessageId
     });
 
-    const shouldSkipPrivateAckForVisibleProfile = Boolean(payload.senderUsername);
-    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && actions.notifyPassenger && !payload.senderId.startsWith("chat:") && !shouldSkipPrivateAckForVisibleProfile) {
+    const canDriversContactPassenger = !payload.senderId.startsWith("chat:") || Boolean(payload.senderUsername) || Boolean(phone);
+    if (
+      env.SEND_PRIVATE_ACK_TO_PASSENGER &&
+      actions.notifyPassenger &&
+      !payload.senderId.startsWith("chat:") &&
+      canDriversContactPassenger
+    ) {
       const passengerAck = buildPassengerAckMessage({
         fromLocation,
         toLocation,
@@ -1070,12 +1145,11 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       }
     }
 
-    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && shouldSkipPrivateAckForVisibleProfile) {
-      await writeInfo("Passenger private ack skipped (visible profile)", {
+    if (env.SEND_PRIVATE_ACK_TO_PASSENGER && !canDriversContactPassenger) {
+      await writeInfo("Passenger private ack skipped (missing username/phone)", {
         sourceChatId: payload.sourceChatId,
         sourceMessageId: payload.sourceMessageId,
-        senderId: payload.senderId,
-        senderUsername: payload.senderUsername
+        senderId: payload.senderId
       });
     }
 

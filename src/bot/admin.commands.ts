@@ -165,8 +165,8 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       [
         `Chat ID: ${ctx.chat?.id ?? "n/a"}`,
         `User ID: ${ctx.from?.id ?? "n/a"}`,
-        `PASSENGERS_CHAT_ID: ${env.PASSENGERS_CHAT_ID}`,
-        `DRIVERS_CHAT_ID: ${env.DRIVERS_CHAT_ID}`
+        `PASSENGER_CHAT_IDS: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
+        `DRIVER_CHAT_ID: ${env.DRIVER_CHAT_ID}`
       ].join("\n")
     );
   });

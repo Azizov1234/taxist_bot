@@ -33,6 +33,10 @@ Bu loyiha eski grammY bot kodini saqlagan holda userbot rejimini default qiladi.
 
 ## ENV namunasi
 Asosiy maydonlar `.env.example` ichida tayyor.
+- `PASSENGER_CHAT_IDS` bir nechta source chat bo'lishi mumkin (vergul bilan yoziladi).
+- `DRIVER_CHAT_ID` faqat bitta target chat.
+- `PASSENGER_HELP_GROUP_LINK` (ixtiyoriy): username/telefon bo'lmasa yo'lovchiga lichkada yuboriladigan yordamchi guruh havolasi.
+- `DRIVER_PREMIUM_GROUP_LINK` (ixtiyoriy): haydovchi pullik guruhiga qo'shilish havolasi. Driver reklama xabari bloklanganda guruh va lichkaga shu link yuboriladi.
 
 ## Scriptlar
 - `npm run dev` - default userbot (`src/main.ts`)

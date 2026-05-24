@@ -697,14 +697,17 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         await client.sendMessage(senderEntity, {
           message: textToPassenger
         });
-      },
-      notifySourceChat: async (textToSourceChat) => {
+      }
+    };
+
+    if (canDeleteFromSource) {
+      actions.notifySourceChat = async (textToSourceChat) => {
         await client.sendMessage(sourceChatIdNumber, {
           message: textToSourceChat,
           replyTo: payload.sourceMessageId
         });
-      }
-    };
+      };
+    }
 
     if (canDeleteFromSource) {
       actions.deleteFromSource = async () => {

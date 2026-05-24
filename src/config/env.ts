@@ -88,9 +88,9 @@ const envSchema = z.object({
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: optionalNumberSchema,
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: optionalNumberSchema,
   PASSENGER_CHAT_IDS: optionalStringSchema,
-  PASSENGERS_CHAT_ID: optionalChatIdSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
-  DRIVERS_CHAT_ID: optionalChatIdSchema,
+  PASSENGER_HELP_GROUP_LINK: optionalStringSchema,
+  DRIVER_PREMIUM_GROUP_LINK: optionalStringSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
   LOG_CHANNEL_ID: optionalChatIdSchema,
   DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
@@ -186,17 +186,14 @@ function hasProviderCredentials(provider: AIProviderName): boolean {
 }
 
 const passengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
-if (passengerChatIds.length === 0 && parsed.data.PASSENGERS_CHAT_ID !== undefined) {
-  passengerChatIds.push(parsed.data.PASSENGERS_CHAT_ID);
-}
 
 if (passengerChatIds.length === 0 && !isGetIdsMode) {
-  throw new Error("Invalid environment variables: PASSENGER_CHAT_IDS (or PASSENGERS_CHAT_ID) is required");
+  throw new Error("Invalid environment variables: PASSENGER_CHAT_IDS is required");
 }
 
-const driverChatId = parsed.data.DRIVER_CHAT_ID ?? parsed.data.DRIVERS_CHAT_ID ?? (isGetIdsMode ? 0 : undefined);
+const driverChatId = parsed.data.DRIVER_CHAT_ID ?? (isGetIdsMode ? 0 : undefined);
 if (driverChatId === undefined) {
-  throw new Error("Invalid environment variables: DRIVER_CHAT_ID (or DRIVERS_CHAT_ID) is required");
+  throw new Error("Invalid environment variables: DRIVER_CHAT_ID is required");
 }
 
 if (parsed.data.ADMIN_TELEGRAM_ID === undefined && !isGetIdsMode) {
@@ -297,9 +294,9 @@ export const env = {
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: Math.round(telegramStartupConnectMaxAttempts),
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: Math.round(telegramStartupConnectRetryMs),
   PASSENGER_CHAT_IDS: passengerChatIds,
-  PASSENGERS_CHAT_ID: passengerChatIds[0] ?? 0,
   DRIVER_CHAT_ID: driverChatId,
-  DRIVERS_CHAT_ID: driverChatId,
+  PASSENGER_HELP_GROUP_LINK: parsed.data.PASSENGER_HELP_GROUP_LINK ?? null,
+  DRIVER_PREMIUM_GROUP_LINK: parsed.data.DRIVER_PREMIUM_GROUP_LINK ?? null,
   ADMIN_TELEGRAM_ID: parsed.data.ADMIN_TELEGRAM_ID,
   LOG_CHANNEL_ID: parsed.data.LOG_CHANNEL_ID,
   DATABASE_URL: parsed.data.DATABASE_URL,
