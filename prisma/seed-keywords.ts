@@ -316,7 +316,9 @@ const DRIVER_SUBJECTS_LATIN = [
   "taxi",
   "taksi",
   "mashina",
+  "mashin",
   "moshina",
+  "moshin",
   "avto",
   "ulov",
   "haydovchi",
@@ -349,7 +351,9 @@ const DRIVER_SERVICE_WORDS_LATIN = [
   "taksi bor",
   "taxi bor",
   "mashina bor",
+  "mashin bor",
   "moshina bor",
+  "moshin bor",
   "avto bor",
   "ulov bor",
   "bo'sh joy bor",
@@ -560,6 +564,8 @@ const CARGO_WORDS = [
 
 const SPAM_WORDS = [
   "kanalga obuna",
+  "kanalga qoshb beraman",
+  "kanalga qo'shib beraman",
   "obuna bo'ling",
   "obuna boling",
   "reklama",
@@ -602,7 +608,9 @@ const SPAM_WORDS = [
   "do'kon",
   "dokoni",
   "savdo",
-  "chegirma"
+  "chegirma",
+  "muzika",
+  "musiqa"
 ];
 
 const AMBIGUOUS_WORDS = [
@@ -664,6 +672,8 @@ const DRIVER_HIGH_WEIGHTS = new Map<string, number>([
   [n("qatnaymiz"), 8],
   [n("murojaat uchun"), 6],
   [n("2 ta joy bor"), 8],
+  [n("mashin bor"), 9],
+  [n("moshin bor"), 9],
   [n("kerak bo'lsa yozing"), 7],
   [n("kategoriya yengil mashinalar"), 8]
 ]);
@@ -678,6 +688,10 @@ const CARGO_HIGH_WEIGHTS = new Map<string, number>([
 const SPAM_HIGH_WEIGHTS = new Map<string, number>([
   [n("obuna bo'ling"), 9],
   [n("reklama"), 8],
+  [n("kanalga qoshb beraman"), 8],
+  [n("kanalga qo'shib beraman"), 8],
+  [n("muzika"), 7],
+  [n("musiqa"), 7],
   [n("http"), 6],
   [n("t.me/"), 6],
   [n("sotiladi"), 5],
@@ -751,6 +765,8 @@ const DRIVER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "xizmat qilamiz", weight: 8 },
   { phrase: "bo'sh joy bor", weight: 10 },
   { phrase: "bosh joy bor", weight: 10 },
+  { phrase: "mashin bor", weight: 10 },
+  { phrase: "moshin bor", weight: 10 },
   { phrase: "2 ta joy bor", weight: 10 },
   { phrase: "har kuni qatnaymiz", weight: 10 },
   { phrase: "har kuni yuramiz", weight: 9 },
@@ -834,6 +850,8 @@ const CARGO_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
 
 const SPAM_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "kanalga obuna", weight: 8 },
+  { phrase: "kanalga qoshb beraman", weight: 8 },
+  { phrase: "kanalga qo'shib beraman", weight: 8 },
   { phrase: "obuna bo'ling", weight: 10 },
   { phrase: "obuna boling", weight: 10 },
   { phrase: "reklama", weight: 9 },
@@ -855,6 +873,8 @@ const SPAM_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "instagram", weight: 7 },
   { phrase: "youtube", weight: 7 },
   { phrase: "tiktok", weight: 7 },
+  { phrase: "muzika", weight: 8 },
+  { phrase: "musiqa", weight: 8 },
   { phrase: "botga start bosing", weight: 8 },
   { phrase: "pul ishlash", weight: 8 },
   { phrase: "karta", weight: 6 },

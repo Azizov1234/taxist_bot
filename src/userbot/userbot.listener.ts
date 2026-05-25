@@ -15,6 +15,7 @@ import {
 } from "../services/keywordDictionary.service.js";
 import {
   getLastLeads,
+  type ProcessMessageResult,
   getStatsSnapshot,
   getStatusSnapshot,
   processIncomingLead,
@@ -548,6 +549,21 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   const deleteCapabilityBySourceChat = new Map<number, boolean>();
   const sourceAdminByChatAndUser = new Map<string, boolean>();
   const driverMembershipByUser = new Map<number, boolean>();
+  const highestSeenSourceMessageId = new Map<number, number>();
+  const periodicCatchUpIntervalMs = 30_000;
+  const periodicCatchUpLimit = Math.max(50, env.LISTENER_STARTUP_BACKFILL_LIMIT * 4);
+  let periodicCatchUpInFlight = false;
+
+  const markSeenSourceMessageId = (sourceChatIdNumber: number, sourceMessageId: number): void => {
+    if (!Number.isInteger(sourceMessageId) || sourceMessageId <= 0) {
+      return;
+    }
+
+    const previous = highestSeenSourceMessageId.get(sourceChatIdNumber) ?? 0;
+    if (sourceMessageId > previous) {
+      highestSeenSourceMessageId.set(sourceChatIdNumber, sourceMessageId);
+    }
+  };
 
   const resolveDeleteCapability = async (sourceChatIdNumber: number): Promise<boolean> => {
     const cached = deleteCapabilityBySourceChat.get(sourceChatIdNumber);
@@ -726,6 +742,57 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     return actions;
   };
 
+  const processStoredSourceMessage = async (
+    sourceChatIdNumber: number,
+    message: any,
+    canDeleteFromSource: boolean,
+    shouldScanByMessageId: (messageId: number) => boolean
+  ): Promise<{ scanned: boolean; leadResult: ProcessMessageResult | null }> => {
+    const messageId = Number(message?.id ?? 0);
+    if (!Number.isInteger(messageId) || messageId <= 0 || !shouldScanByMessageId(messageId)) {
+      return { scanned: false, leadResult: null };
+    }
+
+    markSeenSourceMessageId(sourceChatIdNumber, messageId);
+    if (message.out === true) {
+      return { scanned: true, leadResult: null };
+    }
+
+    try {
+      const built = await buildUnifiedPayloadFromStoredMessage(client, sourceChatIdNumber, message);
+      if (!built) {
+        return { scanned: true, leadResult: null };
+      }
+
+      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, built.payload.senderId);
+      built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
+      built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
+
+      const actions = buildActions(
+        built.payload,
+        sourceChatIdNumber,
+        canDeleteFromSource,
+        async () => sourceChatIdNumber,
+        async () => built.senderEntity
+      );
+
+      const leadResult = await processIncomingLead(built.payload, actions);
+      return { scanned: true, leadResult };
+    } catch (error) {
+      await writeWarn("Failed to process stored source message", {
+        sourceChatId: String(sourceChatIdNumber),
+        sourceMessageId: messageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { scanned: true, leadResult: null };
+    }
+  };
+
+  const getOrderedSourceMessages = async (sourceChatIdNumber: number, limit: number): Promise<any[]> => {
+    const recent = await client.getMessages(sourceChatIdNumber, { limit });
+    return [...recent].filter(Boolean).sort((a: any, b: any) => Number(a?.id ?? 0) - Number(b?.id ?? 0));
+  };
+
   const runStartupBackfill = async (): Promise<void> => {
     const startupLimit = Math.max(0, env.LISTENER_STARTUP_BACKFILL_LIMIT);
     if (startupLimit === 0) {
@@ -738,8 +805,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           env.DELETE_SOURCE_MESSAGE_IF_ADMIN && env.STARTUP_BACKFILL_DELETE_SOURCE
             ? await resolveDeleteCapability(sourceChatIdNumber)
             : false;
-        const recent = await client.getMessages(sourceChatIdNumber, { limit: startupLimit });
-        const ordered = [...recent].filter(Boolean).sort((a: any, b: any) => Number(a?.id ?? 0) - Number(b?.id ?? 0));
+        const ordered = await getOrderedSourceMessages(sourceChatIdNumber, startupLimit);
 
         let processedCount = 0;
         let sentCount = 0;
@@ -751,35 +817,18 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             continue;
           }
 
-          if (message.out === true) {
+          const result = await processStoredSourceMessage(sourceChatIdNumber, message, canDeleteFromSource, () => true);
+          if (!result.leadResult) {
             continue;
           }
 
-          const built = await buildUnifiedPayloadFromStoredMessage(client, sourceChatIdNumber, message);
-          if (!built) {
-            continue;
-          }
-
-          const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, built.payload.senderId);
-          built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
-          built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
-
-          const actions = buildActions(
-            built.payload,
-            sourceChatIdNumber,
-            canDeleteFromSource,
-            async () => sourceChatIdNumber,
-            async () => built.senderEntity
-          );
-
-          const result = await processIncomingLead(built.payload, actions);
           processedCount += 1;
 
-          if (result.processed) {
+          if (result.leadResult.processed) {
             sentCount += 1;
           } else {
             skippedCount += 1;
-            const reason = result.reason ?? "Unknown";
+            const reason = result.leadResult.reason ?? "Unknown";
             skippedReasonCounter.set(reason, (skippedReasonCounter.get(reason) ?? 0) + 1);
           }
         }
@@ -804,6 +853,75 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           error: error instanceof Error ? error.message : String(error)
         });
       }
+    }
+  };
+
+  const runPeriodicCatchUp = async (): Promise<void> => {
+    if (periodicCatchUpInFlight) {
+      return;
+    }
+
+    periodicCatchUpInFlight = true;
+
+    try {
+      for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
+        try {
+          const ordered = await getOrderedSourceMessages(sourceChatIdNumber, periodicCatchUpLimit);
+          const canDeleteFromSource = env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? await resolveDeleteCapability(sourceChatIdNumber) : false;
+
+          let scannedFresh = 0;
+          let processedCount = 0;
+          let sentCount = 0;
+          let skippedCount = 0;
+          const lastSeenSourceMessageId = highestSeenSourceMessageId.get(sourceChatIdNumber) ?? 0;
+
+          for (const message of ordered) {
+            if (!message) {
+              continue;
+            }
+
+            const result = await processStoredSourceMessage(
+              sourceChatIdNumber,
+              message,
+              canDeleteFromSource,
+              (messageId) => messageId > lastSeenSourceMessageId
+            );
+            if (!result.scanned) {
+              continue;
+            }
+
+            scannedFresh += 1;
+            if (!result.leadResult) {
+              continue;
+            }
+
+            processedCount += 1;
+
+            if (result.leadResult.processed) {
+              sentCount += 1;
+            } else {
+              skippedCount += 1;
+            }
+          }
+
+          if (scannedFresh > 0) {
+            await writeInfo("Userbot periodic catch-up completed", {
+              sourceChatId: String(sourceChatIdNumber),
+              scannedFresh,
+              processed: processedCount,
+              sent: sentCount,
+              skipped: skippedCount
+            });
+          }
+        } catch (error) {
+          await writeWarn("Userbot periodic catch-up failed for source chat", {
+            sourceChatId: String(sourceChatIdNumber),
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    } finally {
+      periodicCatchUpInFlight = false;
     }
   };
 
@@ -856,6 +974,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return;
       }
 
+      markSeenSourceMessageId(sourceChatIdNumber, payload.sourceMessageId);
+
       const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, payload.senderId);
       payload.isSourceAdmin = senderFlags.isSourceAdmin;
       payload.isDriverChatMember = senderFlags.isDriverChatMember;
@@ -897,6 +1017,14 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   );
 
   await runStartupBackfill();
+  setInterval(() => {
+    void runPeriodicCatchUp();
+  }, periodicCatchUpIntervalMs).unref();
+
+  await writeInfo("Userbot periodic catch-up enabled", {
+    intervalMs: periodicCatchUpIntervalMs,
+    limit: periodicCatchUpLimit
+  });
 
   await writeInfo("Userbot listener started", {
     sourceChats: env.PASSENGER_CHAT_IDS,

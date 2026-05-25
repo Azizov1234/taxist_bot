@@ -82,8 +82,8 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
     pattern:
       /\b(?:\d{1,2}\s*(?:\u0442\u0430\s*)?)?(?:\u0431[\u045e\u0443]\u0448\s*)?(?:\u0436\u043e\u0439|\u043c\u0435\u0441\u0442[\u0430\u043e])(?:\u0438\u043c|\u0438\u043c\u0438\u0437|\u043b\u0430\u0440\u0438)?\s*\u0431\u043e\u0440\b/iu
   },
-  { id: "mashina_bor", pattern: /\b(?:mashina|moshina|avto)\s*bor\b/iu },
-  { id: "avto_model_ad", pattern: /\b(?:avto|mashina|moshina)\b.{0,12}\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  { id: "mashina_bor", pattern: /\b(?:mashina|mashin|moshina|moshin|avto)\s*bor\b/iu },
+  { id: "avto_model_ad", pattern: /\b(?:avto|mashina|mashin|moshina|moshin)\b.{0,12}\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
   {
     id: "avto_model_with_passenger_signal",
     pattern:
@@ -98,7 +98,7 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
 const DRIVER_COMMERCIAL_VERB_REGEX =
   /\b(?:olaman|olamiz|olamz|yuraman|yuramiz|yuramz|ketaman|ketamiz|ketamz|qatnayman|qatnaymiz|qatnaymz|chiqaman|chiqamiz|chiqamz|jo'?nayman|jo'?naymiz|jo'?naymz|yetkazib beraman|yetkazib beramiz|olib ketaman|olib ketamiz|olib ketamz|ob ketaman|ob ketamiz|ob ketamz)\b/iu;
 const DRIVER_COMMERCIAL_CONTEXT_REGEX =
-  /\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|moshina|taxi|taksi|kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu;
+  /\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|mashin|moshina|moshin|taxi|taksi|kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu;
 const PRICE_QUERY_KEYWORDS_NORMALIZED = [
   "qancha",
   "qanchaga",
@@ -468,10 +468,15 @@ function buildPassengerAckMessage(params: {
 }): string {
   const route = `${params.fromLocation ?? "aniqlanmadi"} -> ${params.toLocation ?? "aniqlanmadi"}`;
   const fare = params.fareMentions.length > 0 ? params.fareMentions.join(", ") : "ko'rsatilmagan";
+  const helpGroups = parseHelpGroupLinks(env.PASSENGER_HELP_GROUP_LINK);
+  const helpGroupsLine =
+    helpGroups.length > 0
+      ? ["", "📌 Tezroq javob uchun admin guruhlar:", ...helpGroups.map((link) => `- ${link}`)].join("\n")
+      : "";
 
   return [
     "✅ So'rovingiz qabul qilindi",
-    "🚕 So'rovingiz taksi kanaliga muvaffaqiyatli yuborildi.",
+    "🚕 So'rovingiz taksi guruhiga muvaffaqiyatli yuborildi.",
     "━━━━━━━━━━━━━━━━━━",
     "",
     `📍 Yo'nalish: ${route}`,
@@ -480,11 +485,29 @@ function buildPassengerAckMessage(params: {
     `💰 Narx/kelishuv: ${fare}`,
     "",
     "📞 Iltimos, telefoningiz ochiq bo'lsin.",
-    "🙏 Tez orada siz bilan bog'lanishadi."
+    "🙏 Tez orada siz bilan bog'lanishadi.",
+    helpGroupsLine
   ].join("\n");
 }
 
+function parseHelpGroupLinks(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(/[\n,;]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 function buildSourceFormatHintMessage(): string {
+  const helpGroups = parseHelpGroupLinks(env.PASSENGER_HELP_GROUP_LINK);
+  const helpGroupsLine =
+    helpGroups.length > 0
+      ? ["", "Qo'shimcha guruhlar:", ...helpGroups.map((link) => `- ${link}`)].join("\n")
+      : "";
+
   return [
     "⚠️ Xabar qabul qilinmadi",
     "Username (@username) yoki telefon ko'rsatilmagan.",
@@ -494,14 +517,17 @@ function buildSourceFormatHintMessage(): string {
     "📍 Yo'nalish: Qayerdan -> Qayerga",
     "📞 Telefon: +998XXXXXXXXX",
     "🕒 Vaqt: hozir / soat 18:30",
-    "👥 Odam soni: 1-2 ta"
+    "👥 Odam soni: 1-2 ta",
+    helpGroupsLine
   ].join("\n");
 }
 
 function buildPrivateFormatHintMessage(): string {
-  const helpGroupLine = env.PASSENGER_HELP_GROUP_LINK
-    ? `🔗 Guruhimiz: ${env.PASSENGER_HELP_GROUP_LINK}`
-    : "🔗 Guruhimiz linkini admin sizga yuboradi.";
+  const helpGroups = parseHelpGroupLinks(env.PASSENGER_HELP_GROUP_LINK);
+  const helpGroupLine =
+    helpGroups.length > 0
+      ? ["🔗 Admin guruhlar:", ...helpGroups.map((link) => `- ${link}`)].join("\n")
+      : "🔗 Guruh linkini admin sizga yuboradi.";
 
   return [
     "⚠️ Xabaringiz qabul qilinmadi",
@@ -521,8 +547,9 @@ function buildPrivateFormatHintMessage(): string {
 
 function buildPrivateForwardSecretHintMessage(): string {
   return [
-    "⚠️ Muhim eslatma",
-    "Xabaringiz yuborildi, lekin haydovchilar siz bilan bog'lana olmasligi mumkin.",
+    "✅ So'rovingiz qabul qilindi va taksi guruhiga yuborildi.",
+    "⚠️ Muhim eslatma:",
+    "Haydovchilar siz bilan bog'lana olmasligi mumkin.",
     "Sabab: username va telefon ko'rsatilmagan, forwardda profilingiz yopiq (secret) bo'lishi mumkin.",
     "",
     "Iltimos, quyidagilardan bittasini qiling:",
@@ -541,11 +568,23 @@ function buildDriverPremiumJoinLine(): string {
   return "👉 Pullik Drivers guruhiga qo'shilish uchun admin bilan bog'laning.";
 }
 
+function buildDriverPremiumPricingBlock(): string[] {
+  return [
+    "Tariflar:",
+    "🗓 15 kunga 20 ming so'm 💸",
+    "🗓 1 oyga 40 ming so'm 💸",
+    "🗓 3 oyga skidkada 100 ming so'm 💸",
+    "🗓 6 oyga 150 ming so'm 💸"
+  ];
+}
+
 function buildDriverAdMembershipRequiredSourceMessage(): string {
   return [
     "🚫 Haydovchi e'loni Drivers kanaliga yuborilmadi.",
     "Bu turdagi xabar uchun pullik Drivers guruh a'zoligi talab qilinadi.",
-    buildDriverPremiumJoinLine()
+    buildDriverPremiumJoinLine(),
+    "",
+    ...buildDriverPremiumPricingBlock()
   ].join("\n");
 }
 
@@ -555,11 +594,7 @@ function buildDriverAdMembershipRequiredPrivateMessage(): string {
     "Siz pullik Drivers guruhida emassiz.",
     buildDriverPremiumJoinLine(),
     "",
-    "Tariflar:",
-    "🗓 15 kunga 20 ming so'm 💸",
-    "🗓 1 oyga 40 ming so'm 💸",
-    "🗓 3 oyga skidkada 100 ming so'm 💸",
-    "🗓 6 oyga 150 ming so'm 💸",
+    ...buildDriverPremiumPricingBlock(),
     "",
     "Lichkaga yozing. A'zo bo'lgach, haydovchi e'lonlari guruhda qoladi."
   ].join("\n");
@@ -1237,6 +1272,14 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         sourceMessageId: payload.sourceMessageId,
         isSourceAdmin,
         isDriverChatMember
+      });
+    }
+
+    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && !actions.deleteFromSource && !isProtectedFromDeletion) {
+      await writeInfo("Source message delete skipped (no delete capability)", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        isStartupBackfill: payload.isStartupBackfill === true
       });
     }
 
