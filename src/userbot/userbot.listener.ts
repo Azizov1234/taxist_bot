@@ -4,6 +4,7 @@ import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
 import { LeadStatus } from "@prisma/client";
 import { env } from "../config/env.js";
+import { prisma } from "../prisma/client.js";
 import { classifyMessage, getProviderStatusSnapshot } from "../services/leadClassifier.service.js";
 import {
   addKeywordEntry,
@@ -141,6 +142,31 @@ function canDeleteMessagesInChat(entity: any): boolean {
   }
 
   return Boolean(rights.deleteMessages ?? rights.delete_messages);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function parseFloodWaitSeconds(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toUpperCase();
+
+  const strictMatch = normalized.match(/FLOOD_WAIT_(\d+)/);
+  if (strictMatch) {
+    const seconds = Number(strictMatch[1]);
+    return Number.isFinite(seconds) ? seconds : null;
+  }
+
+  const genericMatch = normalized.match(/A WAIT OF (\d+) SECONDS IS REQUIRED/);
+  if (genericMatch) {
+    const seconds = Number(genericMatch[1]);
+    return Number.isFinite(seconds) ? seconds : null;
+  }
+
+  return null;
 }
 
 async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text: string): Promise<void> {
@@ -545,14 +571,63 @@ async function buildUnifiedPayloadFromStoredMessage(
 export async function startUserbotListener(client: TelegramClient): Promise<void> {
   const state: ListenerState = { paused: false };
   const listenerStartedAtMs = Date.now();
+  const maxStartupBackfillLimit = 20;
+  const configuredStartupBackfillLimit = Math.max(0, env.LISTENER_STARTUP_BACKFILL_LIMIT);
+  const startupBackfillLimit = Math.min(maxStartupBackfillLimit, configuredStartupBackfillLimit);
+  const outboundMinDelayMs = 900;
+  const outboundJitterMs = 600;
   const ignoredSourceLogCache = new Set<number>();
   const deleteCapabilityBySourceChat = new Map<number, boolean>();
   const sourceAdminByChatAndUser = new Map<string, boolean>();
   const driverMembershipByUser = new Map<number, boolean>();
   const highestSeenSourceMessageId = new Map<number, number>();
   const periodicCatchUpIntervalMs = 30_000;
-  const periodicCatchUpLimit = Math.max(50, env.LISTENER_STARTUP_BACKFILL_LIMIT * 4);
+  const periodicCatchUpLimit = Math.max(50, startupBackfillLimit * 4);
+  let outboundQueue: Promise<unknown> = Promise.resolve();
+  let lastOutboundWriteAt = 0;
   let periodicCatchUpInFlight = false;
+
+  const runThrottledTelegramWrite = async <T>(operationName: string, operation: () => Promise<T>): Promise<T> => {
+    const task = outboundQueue.then(async () => {
+      const now = Date.now();
+      const baseWaitMs = Math.max(0, lastOutboundWriteAt + outboundMinDelayMs - now);
+      const jitterWaitMs = Math.floor(Math.random() * (outboundJitterMs + 1));
+      const totalWaitMs = baseWaitMs + jitterWaitMs;
+
+      if (totalWaitMs > 0) {
+        await sleep(totalWaitMs);
+      }
+
+      while (true) {
+        try {
+          const result = await operation();
+          lastOutboundWriteAt = Date.now();
+          return result;
+        } catch (error) {
+          const floodWaitSeconds = parseFloodWaitSeconds(error);
+          if (floodWaitSeconds === null) {
+            lastOutboundWriteAt = Date.now();
+            throw error;
+          }
+
+          const retryAfterMs = floodWaitSeconds * 1000 + 1_500 + Math.floor(Math.random() * 700);
+          await writeWarn("Telegram flood wait detected, retrying throttled write", {
+            operation: operationName,
+            retryAfterMs,
+            floodWaitSeconds
+          });
+          await sleep(retryAfterMs);
+        }
+      }
+    });
+
+    outboundQueue = task.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return task;
+  };
 
   const markSeenSourceMessageId = (sourceChatIdNumber: number, sourceMessageId: number): void => {
     if (!Number.isInteger(sourceMessageId) || sourceMessageId <= 0) {
@@ -646,9 +721,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, payload.sourceChatUsername);
     if (sourceMessageLink) {
       try {
-        await client.sendMessage(env.DRIVER_CHAT_ID, {
-          message: sourceMessageLink
-        });
+        await runThrottledTelegramWrite("send_source_link_fallback", async () =>
+          client.sendMessage(env.DRIVER_CHAT_ID, {
+            message: sourceMessageLink
+          })
+        );
       } catch (linkSendError) {
         await writeWarn("Failed to send source link fallback to driver chat", {
           sourceChatId: payload.sourceChatId,
@@ -673,18 +750,22 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   ): UnifiedMessageActions => {
     const actions: UnifiedMessageActions = {
       sendToDriver: async (formattedText, _originalText) => {
-        const sent = await client.sendMessage(env.DRIVER_CHAT_ID, {
-          message: formattedText
-        });
+        const sent = await runThrottledTelegramWrite("send_driver_summary", async () =>
+          client.sendMessage(env.DRIVER_CHAT_ID, {
+            message: formattedText
+          })
+        );
         let forwardedOriginal = false;
         let forwardedContactVisible = false;
 
         try {
           const fromPeer = await resolveForwardFromPeer();
-          const forwardedMessages = await client.forwardMessages(env.DRIVER_CHAT_ID, {
-            messages: [payload.sourceMessageId],
-            fromPeer
-          });
+          const forwardedMessages = await runThrottledTelegramWrite("forward_original_message", async () =>
+            client.forwardMessages(env.DRIVER_CHAT_ID, {
+              messages: [payload.sourceMessageId],
+              fromPeer
+            })
+          );
           forwardedOriginal = true;
 
           const firstForwardedMessage = Array.isArray(forwardedMessages) ? forwardedMessages[0] : null;
@@ -716,26 +797,32 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           return;
         }
 
-        await client.sendMessage(senderEntity, {
-          message: textToPassenger
-        });
+        await runThrottledTelegramWrite("notify_passenger", async () =>
+          client.sendMessage(senderEntity, {
+            message: textToPassenger
+          })
+        );
       }
     };
 
     if (canDeleteFromSource) {
       actions.notifySourceChat = async (textToSourceChat) => {
-        await client.sendMessage(sourceChatIdNumber, {
-          message: textToSourceChat,
-          replyTo: payload.sourceMessageId
-        });
+        await runThrottledTelegramWrite("notify_source_chat", async () =>
+          client.sendMessage(sourceChatIdNumber, {
+            message: textToSourceChat,
+            replyTo: payload.sourceMessageId
+          })
+        );
       };
     }
 
     if (canDeleteFromSource) {
       actions.deleteFromSource = async () => {
-        await client.deleteMessages(sourceChatIdNumber, [payload.sourceMessageId], {
-          revoke: true
-        });
+        await runThrottledTelegramWrite("delete_source_message", async () =>
+          client.deleteMessages(sourceChatIdNumber, [payload.sourceMessageId], {
+            revoke: true
+          })
+        );
       };
     }
 
@@ -794,8 +881,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   };
 
   const runStartupBackfill = async (): Promise<void> => {
-    const startupLimit = Math.max(0, env.LISTENER_STARTUP_BACKFILL_LIMIT);
-    if (startupLimit === 0) {
+    if (startupBackfillLimit === 0) {
       return;
     }
 
@@ -805,7 +891,14 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           env.DELETE_SOURCE_MESSAGE_IF_ADMIN && env.STARTUP_BACKFILL_DELETE_SOURCE
             ? await resolveDeleteCapability(sourceChatIdNumber)
             : false;
-        const ordered = await getOrderedSourceMessages(sourceChatIdNumber, startupLimit);
+        const latestStored = await prisma.lead.findFirst({
+          where: { sourceChatId: String(sourceChatIdNumber) },
+          select: { sourceMessageId: true },
+          orderBy: { sourceMessageId: "desc" }
+        });
+        const latestStoredSourceMessageId = latestStored?.sourceMessageId ?? 0;
+        const ordered = await getOrderedSourceMessages(sourceChatIdNumber, startupBackfillLimit);
+        markSeenSourceMessageId(sourceChatIdNumber, latestStoredSourceMessageId);
 
         let processedCount = 0;
         let sentCount = 0;
@@ -817,7 +910,12 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             continue;
           }
 
-          const result = await processStoredSourceMessage(sourceChatIdNumber, message, canDeleteFromSource, () => true);
+          const result = await processStoredSourceMessage(
+            sourceChatIdNumber,
+            message,
+            canDeleteFromSource,
+            (messageId) => messageId > latestStoredSourceMessageId
+          );
           if (!result.leadResult) {
             continue;
           }
@@ -841,7 +939,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         await writeInfo("Userbot startup backfill completed", {
           sourceChatId: String(sourceChatIdNumber),
           scanned: ordered.length,
-          limit: startupLimit,
+          limit: startupBackfillLimit,
+          latestStoredSourceMessageId,
           processed: processedCount,
           sent: sentCount,
           skipped: skippedCount,
@@ -873,7 +972,6 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           let processedCount = 0;
           let sentCount = 0;
           let skippedCount = 0;
-          const lastSeenSourceMessageId = highestSeenSourceMessageId.get(sourceChatIdNumber) ?? 0;
 
           for (const message of ordered) {
             if (!message) {
@@ -884,7 +982,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
               sourceChatIdNumber,
               message,
               canDeleteFromSource,
-              (messageId) => messageId > lastSeenSourceMessageId
+              (messageId) => messageId > (highestSeenSourceMessageId.get(sourceChatIdNumber) ?? 0)
             );
             if (!result.scanned) {
               continue;
@@ -1009,6 +1107,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     }
   };
 
+  await runStartupBackfill();
+
   client.addEventHandler(
     handler,
     new NewMessage({
@@ -1016,10 +1116,21 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     })
   );
 
-  await runStartupBackfill();
   setInterval(() => {
     void runPeriodicCatchUp();
   }, periodicCatchUpIntervalMs).unref();
+
+  if (configuredStartupBackfillLimit > maxStartupBackfillLimit) {
+    await writeWarn("LISTENER_STARTUP_BACKFILL_LIMIT capped to protect from duplicate/flood bursts", {
+      configured: configuredStartupBackfillLimit,
+      applied: startupBackfillLimit
+    });
+  }
+
+  await writeInfo("Userbot outbound throttle enabled", {
+    minDelayMs: outboundMinDelayMs,
+    jitterMs: outboundJitterMs
+  });
 
   await writeInfo("Userbot periodic catch-up enabled", {
     intervalMs: periodicCatchUpIntervalMs,
