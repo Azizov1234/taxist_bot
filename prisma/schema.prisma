@@ -72,6 +72,7 @@ model Lead {
   confidence         Float?
   isDriverAd         Boolean    @default(false)
   isSpam             Boolean    @default(false)
+  targetDriverChatId BigInt?
   driverMessageId    Int?
   errorMessage       String?
   detectedRoute      String?

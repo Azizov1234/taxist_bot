@@ -71,6 +71,10 @@ const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace
 const runtimeModeSchema = z.enum(["userbot", "legacy"]);
 const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
 const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
+const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON"]);
+
+export type SourceRegion = z.infer<typeof sourceRegionSchema>;
+const SOURCE_REGIONS: SourceRegion[] = [...sourceRegionSchema.options];
 
 export type AIProviderName = z.infer<typeof aiProviderNameSchema>;
 
@@ -97,7 +101,11 @@ const envSchema = z.object({
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: optionalNumberSchema,
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: optionalNumberSchema,
   PASSENGER_CHAT_IDS: optionalStringSchema,
+  PASSENGER_CHAT_IDS_TASHKENT: optionalStringSchema,
+  PASSENGER_CHAT_IDS_GULISTON: optionalStringSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
+  DRIVER_CHAT_ID_TASHKENT: optionalChatIdSchema,
+  DRIVER_CHAT_ID_GULISTON: optionalChatIdSchema,
   PASSENGER_HELP_GROUP_LINK: optionalStringSchema,
   DRIVER_PREMIUM_GROUP_LINK: optionalStringSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
@@ -152,12 +160,14 @@ function parseChatIdList(rawValue: string | undefined): number[] {
     return [];
   }
 
-  return rawValue
+  const parsed = rawValue
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && Number.isInteger(value) && Math.abs(value) >= 1);
+
+  return [...new Set(parsed)];
 }
 
 function parseProviderOrder(rawValue: string | undefined): AIProviderName[] {
@@ -194,13 +204,50 @@ function hasProviderCredentials(provider: AIProviderName): boolean {
   return Boolean(envData.CLOUDFLARE_API_TOKEN && envData.CLOUDFLARE_ACCOUNT_ID);
 }
 
-const passengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
+const legacyPassengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
+const passengerChatIdsByRegion: Record<SourceRegion, number[]> = {
+  TASHKENT: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_TASHKENT),
+  GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON)
+};
 
-if (passengerChatIds.length === 0 && !isGetIdsMode) {
-  throw new Error("Invalid environment variables: PASSENGER_CHAT_IDS is required");
+if (passengerChatIdsByRegion.TASHKENT.length === 0 && passengerChatIdsByRegion.GULISTON.length === 0 && legacyPassengerChatIds.length > 0) {
+  passengerChatIdsByRegion.TASHKENT = legacyPassengerChatIds;
 }
 
-const driverChatId = parsed.data.DRIVER_CHAT_ID ?? (isGetIdsMode ? 0 : undefined);
+const passengerChatRegionById = new Map<number, SourceRegion>();
+for (const region of SOURCE_REGIONS) {
+  for (const chatId of passengerChatIdsByRegion[region]) {
+    const existingRegion = passengerChatRegionById.get(chatId);
+    if (existingRegion && existingRegion !== region) {
+      throw new Error(`Invalid environment variables: passenger chat ${chatId} assigned to multiple regions (${existingRegion}, ${region})`);
+    }
+    passengerChatRegionById.set(chatId, region);
+  }
+}
+
+const passengerChatIds = [...new Set([...passengerChatIdsByRegion.TASHKENT, ...passengerChatIdsByRegion.GULISTON])];
+
+if (passengerChatIds.length === 0 && !isGetIdsMode) {
+  throw new Error(
+    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS or PASSENGER_CHAT_IDS_TASHKENT/PASSENGER_CHAT_IDS_GULISTON)"
+  );
+}
+
+const legacyDriverChatId = parsed.data.DRIVER_CHAT_ID;
+const driverChatIdByRegion: Record<SourceRegion, number | null> = {
+  TASHKENT: parsed.data.DRIVER_CHAT_ID_TASHKENT ?? legacyDriverChatId ?? null,
+  GULISTON: parsed.data.DRIVER_CHAT_ID_GULISTON ?? legacyDriverChatId ?? null
+};
+
+for (const region of SOURCE_REGIONS) {
+  if (passengerChatIdsByRegion[region].length > 0 && driverChatIdByRegion[region] === null && !isGetIdsMode) {
+    throw new Error(`Invalid environment variables: DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
+  }
+}
+
+const driverChatIds = [...new Set(Object.values(driverChatIdByRegion).filter((chatId): chatId is number => chatId !== null))];
+const driverChatId = driverChatIdByRegion.TASHKENT ?? driverChatIdByRegion.GULISTON ?? (isGetIdsMode ? 0 : undefined);
+
 if (driverChatId === undefined) {
   throw new Error("Invalid environment variables: DRIVER_CHAT_ID is required");
 }
@@ -307,7 +354,14 @@ export const env = {
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: Math.round(telegramStartupConnectMaxAttempts),
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: Math.round(telegramStartupConnectRetryMs),
   PASSENGER_CHAT_IDS: passengerChatIds,
+  PASSENGER_CHAT_IDS_TASHKENT: passengerChatIdsByRegion.TASHKENT,
+  PASSENGER_CHAT_IDS_GULISTON: passengerChatIdsByRegion.GULISTON,
+  PASSENGER_CHAT_IDS_BY_REGION: passengerChatIdsByRegion,
   DRIVER_CHAT_ID: driverChatId,
+  DRIVER_CHAT_ID_TASHKENT: driverChatIdByRegion.TASHKENT,
+  DRIVER_CHAT_ID_GULISTON: driverChatIdByRegion.GULISTON,
+  DRIVER_CHAT_IDS: driverChatIds,
+  DRIVER_CHAT_ID_BY_REGION: driverChatIdByRegion,
   PASSENGER_HELP_GROUP_LINK: parsed.data.PASSENGER_HELP_GROUP_LINK ?? null,
   DRIVER_PREMIUM_GROUP_LINK: parsed.data.DRIVER_PREMIUM_GROUP_LINK ?? null,
   ADMIN_TELEGRAM_ID: parsed.data.ADMIN_TELEGRAM_ID,
@@ -344,5 +398,22 @@ export const env = {
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
   DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)
 };
+
+export function getSourceRegionByPassengerChatId(chatId: number): SourceRegion | null {
+  return passengerChatRegionById.get(chatId) ?? null;
+}
+
+export function getDriverChatIdBySourceChatId(chatId: number): number | null {
+  const region = getSourceRegionByPassengerChatId(chatId);
+  if (!region) {
+    return null;
+  }
+
+  return env.DRIVER_CHAT_ID_BY_REGION[region];
+}
+
+export function isDriverChatId(chatId: number): boolean {
+  return env.DRIVER_CHAT_IDS.includes(chatId);
+}
 
 export type AppEnv = typeof env;

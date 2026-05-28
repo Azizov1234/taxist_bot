@@ -1,7 +1,7 @@
 ﻿import { LeadStatus, Prisma } from "@prisma/client";
 import type { Context } from "grammy";
 import { DRIVER_AD_NEGATIVE_KEYWORDS } from "../config/defaultKeywords.js";
-import { env } from "../config/env.js";
+import { env, getDriverChatIdBySourceChatId, getSourceRegionByPassengerChatId, type SourceRegion } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
 import { classifyMessage, keywordClassify, normalizeText } from "./leadClassifier.service.js";
 import { extractPhone } from "../utils/phone.js";
@@ -23,6 +23,7 @@ export interface DriverSendResult {
 
 export interface UnifiedIncomingMessage {
   sourceChatId: string;
+  sourceRegion?: SourceRegion;
   sourceChatTitle: string;
   sourceChatUsername?: string | null;
   sourceMessageId: number;
@@ -42,6 +43,14 @@ export interface UnifiedMessageActions {
   deleteFromSource?: () => Promise<void>;
   notifyPassenger?: (text: string) => Promise<void>;
   notifySourceChat?: (text: string) => Promise<void>;
+}
+
+function getSourceChatScopeForDriver(driverChatId: number | null): string[] {
+  if (driverChatId === null) {
+    return [];
+  }
+
+  return env.PASSENGER_CHAT_IDS.filter((chatId) => getDriverChatIdBySourceChatId(chatId) === driverChatId).map((chatId) => String(chatId));
 }
 
 const DRIVER_AD_KEYWORDS_NORMALIZED = [...new Set(DRIVER_AD_NEGATIVE_KEYWORDS.map((keyword) => normalizeText(keyword)))];
@@ -648,6 +657,11 @@ async function saveLeadWithStatus(params: {
   driverMessageId?: number;
   errorMessage?: string;
 }): Promise<void> {
+  const sourceChatIdNumber = Number(params.payload.sourceChatId);
+  const targetDriverChatId =
+    Number.isInteger(sourceChatIdNumber) && Number.isFinite(sourceChatIdNumber) ? getDriverChatIdBySourceChatId(sourceChatIdNumber) : null;
+  const targetDriverChatIdBigInt = targetDriverChatId !== null ? BigInt(targetDriverChatId) : null;
+
   const data: Prisma.LeadCreateInput = {
     sourceChatId: params.payload.sourceChatId,
     sourceMessageId: params.payload.sourceMessageId,
@@ -668,6 +682,7 @@ async function saveLeadWithStatus(params: {
     confidence: params.confidence,
     isDriverAd: params.isDriverAd,
     isSpam: params.isSpam,
+    targetDriverChatId: targetDriverChatIdBigInt,
     detectedRoute: params.detectedRoute,
     status: params.status
   };
@@ -715,6 +730,11 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     return { processed: false, reason: "No text/caption in message" };
   }
 
+  const sourceChatIdNumber = Number(payload.sourceChatId);
+  const targetDriverChatId =
+    Number.isInteger(sourceChatIdNumber) && Number.isFinite(sourceChatIdNumber) ? getDriverChatIdBySourceChatId(sourceChatIdNumber) : null;
+  const targetDriverChatIdBigInt = targetDriverChatId !== null ? BigInt(targetDriverChatId) : null;
+
   const existingByMessage = await prisma.lead.findUnique({
     where: {
       sourceChatId_sourceMessageId: {
@@ -728,13 +748,20 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     const shouldRetryDelivery =
       existingByMessage.status === LeadStatus.NEW ||
       existingByMessage.status === LeadStatus.ERROR;
+    const shouldRetryForDriverRemap =
+      payload.isStartupBackfill === true &&
+      targetDriverChatIdBigInt !== null &&
+      existingByMessage.targetDriverChatId !== targetDriverChatIdBigInt;
 
-    if (shouldRetryDelivery) {
-      await writeWarn("Existing unsent source message found, retrying delivery", {
+    if (shouldRetryDelivery || shouldRetryForDriverRemap) {
+      await writeWarn("Existing source message requires re-delivery", {
         sourceChatId: payload.sourceChatId,
         sourceMessageId: payload.sourceMessageId,
         existingLeadId: existingByMessage.id,
-        existingStatus: existingByMessage.status
+        existingStatus: existingByMessage.status,
+        existingTargetDriverChatId: existingByMessage.targetDriverChatId?.toString() ?? null,
+        targetDriverChatId: targetDriverChatIdBigInt?.toString() ?? null,
+        retryReason: shouldRetryForDriverRemap ? "driver_chat_remap" : "unsent_or_error"
       });
 
       await prisma.lead.delete({
@@ -754,10 +781,16 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
 
   const normalizedText = normalizeText(originalText);
   const duplicateWindowStart = new Date(Date.now() - env.DUPLICATE_WINDOW_MINUTES * 60_000);
+  const duplicateSourceChatScope = getSourceChatScopeForDriver(targetDriverChatId);
 
   const duplicateBySenderText = await prisma.lead.findFirst({
     where: {
-      sourceChatId: payload.sourceChatId,
+      sourceChatId:
+        duplicateSourceChatScope.length > 0
+          ? {
+              in: duplicateSourceChatScope
+            }
+          : payload.sourceChatId,
       senderId: payload.senderId,
       normalizedText,
       createdAt: { gte: duplicateWindowStart }
@@ -780,10 +813,19 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       isDriverAd: false,
       isSpam: false,
       status: LeadStatus.DUPLICATE,
-      errorMessage: `Duplicate sender/text in ${env.DUPLICATE_WINDOW_MINUTES} minutes`
+      errorMessage:
+        targetDriverChatId !== null
+          ? `Duplicate sender/text for driver ${targetDriverChatId} in ${env.DUPLICATE_WINDOW_MINUTES} minutes`
+          : `Duplicate sender/text in ${env.DUPLICATE_WINDOW_MINUTES} minutes`
     });
 
-    return { processed: false, reason: "Duplicate sender/text window" };
+    return {
+      processed: false,
+      reason:
+        targetDriverChatId !== null
+          ? `Duplicate sender/text window (driver=${targetDriverChatId})`
+          : "Duplicate sender/text window"
+    };
   }
 
   const classification = await classifyMessage(originalText);
@@ -1135,6 +1177,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       confidence: classification.confidence,
       isDriverAd,
       isSpam,
+      targetDriverChatId: targetDriverChatIdBigInt,
       detectedRoute: routeFromRules,
       status: LeadStatus.NEW
     }
@@ -1324,6 +1367,12 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     return { processed: false, reason: "Message from disallowed chat" };
   }
 
+  const sourceRegion = getSourceRegionByPassengerChatId(ctx.chat.id);
+  const driverChatId = getDriverChatIdBySourceChatId(ctx.chat.id);
+  if (!sourceRegion || driverChatId === null) {
+    return { processed: false, reason: "Source chat has no configured region/driver mapping" };
+  }
+
   if (ctx.from?.is_bot) {
     return { processed: false, reason: "Message from bot user" };
   }
@@ -1348,6 +1397,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   const payload: UnifiedIncomingMessage = {
     sourceChatId: String(ctx.chat.id),
+    sourceRegion,
     sourceChatTitle: ctx.chat.title ?? String(ctx.chat.id),
     sourceChatUsername: ctx.chat.username ?? null,
     sourceMessageId: msg.message_id,
@@ -1364,7 +1414,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   const actions: UnifiedMessageActions = {
     sendToDriver: async (formattedText, _originalText) => {
-      const summaryMessage = await ctx.api.sendMessage(env.DRIVER_CHAT_ID, formattedText);
+      const summaryMessage = await ctx.api.sendMessage(driverChatId, formattedText);
       return {
         driverMessageId: summaryMessage.message_id,
         forwardedOriginal: true,

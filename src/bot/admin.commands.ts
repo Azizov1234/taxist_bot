@@ -166,7 +166,10 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         `Chat ID: ${ctx.chat?.id ?? "n/a"}`,
         `User ID: ${ctx.from?.id ?? "n/a"}`,
         `PASSENGER_CHAT_IDS: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
-        `DRIVER_CHAT_ID: ${env.DRIVER_CHAT_ID}`
+        `PASSENGER_CHAT_IDS_TASHKENT: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
+        `PASSENGER_CHAT_IDS_GULISTON: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
+        `DRIVER_CHAT_ID_TASHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
+        `DRIVER_CHAT_ID_GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`
       ].join("\n")
     );
   });

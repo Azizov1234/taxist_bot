@@ -33,8 +33,10 @@ Bu loyiha eski grammY bot kodini saqlagan holda userbot rejimini default qiladi.
 
 ## ENV namunasi
 Asosiy maydonlar `.env.example` ichida tayyor.
-- `PASSENGER_CHAT_IDS` bir nechta source chat bo'lishi mumkin (vergul bilan yoziladi).
-- `DRIVER_CHAT_ID` faqat bitta target chat.
+- Tavsiya etiladi: region bo'yicha ajratish
+- `PASSENGER_CHAT_IDS_TASHKENT`, `PASSENGER_CHAT_IDS_GULISTON`
+- `DRIVER_CHAT_ID_TASHKENT`, `DRIVER_CHAT_ID_GULISTON`
+- Legacy fallback ham bor: `PASSENGER_CHAT_IDS`, `DRIVER_CHAT_ID`
 - `PASSENGER_HELP_GROUP_LINK` (ixtiyoriy): username/telefon bo'lmasa yo'lovchiga lichkada yuboriladigan yordamchi guruh havolasi.
 - `DRIVER_PREMIUM_GROUP_LINK` (ixtiyoriy): haydovchi pullik guruhiga qo'shilish havolasi. Driver reklama xabari bloklanganda guruh va lichkaga shu link yuboriladi.
 
@@ -59,7 +61,7 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 2. ENV validation
 3. Prisma connect
 4. GramJS userbot connect
-5. `PASSENGER_CHAT_IDS` parse
+5. Passenger source chatlar parse (`TASHKENT/GULISTON` bo'yicha)
 6. Source chatlardan yangi xabarlarni tinglash
 7. Text/caption bo'lmasa skip
 8. Duplicate tekshirish
@@ -67,7 +69,7 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 10. Rule-based analyzer
 11. AI analyzer (provider fallback)
 12. AI xato bo'lsa rule-based fallback
-13. Lead bo'lsa driver chatga formatlangan yuborish
+13. Lead bo'lsa source regioniga mos driver chatga formatlangan yuborish
 14. `DELETE_SOURCE_MESSAGE_IF_ADMIN=true` bo'lsa source xabarni o'chirishga urinish
 15. `DELETE_IGNORED_MESSAGE_IF_ADMIN=true` bo'lsa `IGNORED` (noise/spam/reklama) xabarlarni ham source'dan o'chirishga urinish
 16. `SEND_PRIVATE_ACK_TO_PASSENGER=true` bo'lsa xabar egasining lichkasiga tasdiq xabari yuborish
@@ -104,8 +106,10 @@ Legacy grammY `/` commandlari ham kodda saqlangan.
    - `TELEGRAM_API_ID`
    - `TELEGRAM_API_HASH`
    - `TELEGRAM_STRING_SESSION`
-   - `PASSENGER_CHAT_IDS`
-   - `DRIVER_CHAT_ID`
+   - `PASSENGER_CHAT_IDS_TASHKENT`
+   - `PASSENGER_CHAT_IDS_GULISTON`
+   - `DRIVER_CHAT_ID_TASHKENT`
+   - `DRIVER_CHAT_ID_GULISTON`
    - `ADMIN_TELEGRAM_ID`
    - `DATABASE_URL`
 4. Deploy qiling: `npm run server:deploy`

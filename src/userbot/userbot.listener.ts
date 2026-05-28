@@ -3,7 +3,7 @@ import { getPeerId } from "telegram/Utils.js";
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
 import { LeadStatus } from "@prisma/client";
-import { env } from "../config/env.js";
+import { env, getDriverChatIdBySourceChatId, getSourceRegionByPassengerChatId, isDriverChatId, type SourceRegion } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
 import { classifyMessage, getProviderStatusSnapshot } from "../services/leadClassifier.service.js";
 import {
@@ -27,6 +27,72 @@ import { writeError, writeInfo, writeWarn } from "../services/logger.service.js"
 
 interface ListenerState {
   paused: boolean;
+}
+
+const REGION_ROUTE_PATTERNS: Record<SourceRegion, RegExp[]> = {
+  TASHKENT: [
+    /\bt[o0]sh?k?e?n?t[nm]?[\p{L}\p{N}_]*\b/iu,
+    /\btashk?e?n?t[nm]?[\p{L}\p{N}_]*\b/iu,
+    /\btoshketn[\p{L}\p{N}_]*\b/iu,
+    /\btoshektn[\p{L}\p{N}_]*\b/iu,
+    /\bтошкент[\p{L}\p{N}_]*\b/iu,
+    /\bсергели[\p{L}\p{N}_]*\b/iu,
+    /\bchilonzor[\p{L}\p{N}_]*\b/iu,
+    /\byunusobod[\p{L}\p{N}_]*\b/iu,
+    /\bchinoz[\p{L}\p{N}_]*\b/iu,
+    /\bolmaliq[\p{L}\p{N}_]*\b/iu,
+    /\bangren[\p{L}\p{N}_]*\b/iu,
+    /\bohangaron[\p{L}\p{N}_]*\b/iu
+  ],
+  GULISTON: [
+    /\bguliston[\p{L}\p{N}_]*\b/iu,
+    /\bbekobod[\p{L}\p{N}_]*\b/iu,
+    /\bshirin[\p{L}\p{N}_]*\b/iu,
+    /\byangiyer[\p{L}\p{N}_]*\b/iu,
+    /\bsirdaryo[\p{L}\p{N}_]*\b/iu,
+    /\bгулистон[\p{L}\p{N}_]*\b/iu,
+    /\bбекобод[\p{L}\p{N}_]*\b/iu
+  ]
+};
+
+function normalizeRouteText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[\u2019`']/g, "'")
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function routeMentionsRegion(routeText: string, region: SourceRegion): boolean {
+  const normalized = normalizeRouteText(routeText);
+  if (!normalized) {
+    return false;
+  }
+
+  return REGION_ROUTE_PATTERNS[region].some((pattern) => pattern.test(normalized));
+}
+
+function resolvePreferredDriverChatIdByRoute(payload: UnifiedIncomingMessage, fallbackDriverChatId: number): number {
+  const normalizedText = normalizeRouteText(payload.text);
+  if (!normalizedText) {
+    return fallbackDriverChatId;
+  }
+
+  const mentionsTashkent = routeMentionsRegion(normalizedText, "TASHKENT");
+  const mentionsGuliston = routeMentionsRegion(normalizedText, "GULISTON");
+
+  // Business rule: if route mentions Toshkent, always route to Toshkent driver chat only.
+  if (mentionsTashkent && env.DRIVER_CHAT_ID_TASHKENT !== null) {
+    return env.DRIVER_CHAT_ID_TASHKENT;
+  }
+
+  // If Toshkent keyword is not present but Guliston-side locations are present, route to Guliston.
+  if (!mentionsTashkent && mentionsGuliston && env.DRIVER_CHAT_ID_GULISTON !== null) {
+    return env.DRIVER_CHAT_ID_GULISTON;
+  }
+
+  return fallbackDriverChatId;
 }
 
 function toText(value: unknown): string {
@@ -169,6 +235,15 @@ function parseFloodWaitSeconds(error: unknown): number | null {
   return null;
 }
 
+function isInputEntityResolveError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toUpperCase();
+  return (
+    message.includes("COULD NOT FIND THE INPUT ENTITY") ||
+    message.includes("PEER_ID_INVALID") ||
+    message.includes("CHANNEL_INVALID")
+  );
+}
+
 async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text: string): Promise<void> {
   const inputChat = await event.getInputChat();
   if (!inputChat) {
@@ -183,16 +258,21 @@ async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text
 async function probeSourceChats(client: TelegramClient): Promise<string> {
   const lines: string[] = [];
   lines.push(`Configured source chats: ${env.PASSENGER_CHAT_IDS.join(", ")}`);
+  lines.push(`TASHKENT passengers: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`);
+  lines.push(`GULISTON passengers: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`);
+  lines.push(`TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`);
+  lines.push(`GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`);
 
   for (const chatId of env.PASSENGER_CHAT_IDS) {
     try {
       const entity = await client.getEntity(chatId);
       const title = formatEntityName(entity) || String(chatId);
+      const sourceRegion = getSourceRegionByPassengerChatId(chatId) ?? "UNKNOWN";
       const lastMessages = await client.getMessages(chatId, { limit: 1 });
       const lastMessage = Array.isArray(lastMessages) ? (lastMessages[0] ?? null) : null;
       const lastMessageId = lastMessage?.id ?? "-";
       const lastMessageDate = lastMessage?.date ? getMessageDate(lastMessage.date).toISOString() : "-";
-      lines.push(`OK | ${chatId} | ${title} | lastMessageId=${lastMessageId} | lastMessageDate=${lastMessageDate}`);
+      lines.push(`OK | ${chatId} | ${sourceRegion} | ${title} | lastMessageId=${lastMessageId} | lastMessageDate=${lastMessageDate}`);
     } catch (error) {
       lines.push(`FAIL | ${chatId} | ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -201,7 +281,9 @@ async function probeSourceChats(client: TelegramClient): Promise<string> {
   return lines.join("\n");
 }
 
-async function resolveSourceChat(event: NewMessageEvent): Promise<{ sourceChatId: string; sourceChatIdNumber: number; chat: any | null }> {
+async function resolveSourceChat(
+  event: NewMessageEvent
+): Promise<{ sourceChatId: string; sourceChatIdNumber: number; sourceRegion: SourceRegion; driverChatId: number; chat: any | null }> {
   const candidateIds: number[] = [];
 
   const peerId = event.message.peerId;
@@ -238,9 +320,17 @@ async function resolveSourceChat(event: NewMessageEvent): Promise<{ sourceChatId
     throw new Error(`Source chat not matched. candidates=[${uniqueCandidateIds.join(", ")}]`);
   }
 
+  const sourceRegion = getSourceRegionByPassengerChatId(matchedId);
+  const driverChatId = getDriverChatIdBySourceChatId(matchedId);
+  if (!sourceRegion || driverChatId === null) {
+    throw new Error(`Source chat ${matchedId} has no region/driver mapping`);
+  }
+
   return {
     sourceChatId: String(matchedId),
     sourceChatIdNumber: matchedId,
+    sourceRegion,
+    driverChatId,
     chat
   };
 }
@@ -275,7 +365,14 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
     await replyToEvent(
       client,
       event,
-      [`Source chatlar: ${env.PASSENGER_CHAT_IDS.join(", ")}`, `Driver chat: ${env.DRIVER_CHAT_ID}`, `Pauza: ${state.paused ? "ha" : "yo'q"}`].join("\n")
+      [
+        `Source chatlar: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
+        `TASHKENT passenger: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
+        `GULISTON passenger: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
+        `TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
+        `GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
+        `Pauza: ${state.paused ? "ha" : "yo'q"}`
+      ].join("\n")
     );
     return true;
   }
@@ -483,6 +580,8 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
     | {
         sourceChatId: string;
         sourceChatIdNumber: number;
+        sourceRegion: SourceRegion;
+        driverChatId: number;
         chat: any | null;
       }
     | null = null;
@@ -506,6 +605,7 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
 
   return {
     sourceChatId,
+    sourceRegion: resolvedSource.sourceRegion,
     sourceChatTitle,
     sourceChatUsername,
     sourceMessageId: event.message.id,
@@ -532,6 +632,10 @@ async function buildUnifiedPayloadFromStoredMessage(
   }
 
   const sourceChatId = String(sourceChatIdNumber);
+  const sourceRegion = getSourceRegionByPassengerChatId(sourceChatIdNumber);
+  if (!sourceRegion) {
+    return null;
+  }
   const chat = await client.getEntity(sourceChatIdNumber).catch(() => null);
   const senderEntity = await message?.getSender?.().catch(() => null);
   const senderIdRaw = message?.senderId?.toString?.() ?? null;
@@ -544,6 +648,7 @@ async function buildUnifiedPayloadFromStoredMessage(
 
   const payload: UnifiedIncomingMessage = {
     sourceChatId,
+    sourceRegion,
     sourceChatTitle,
     sourceChatUsername,
     sourceMessageId: Number(message?.id),
@@ -579,7 +684,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   const ignoredSourceLogCache = new Set<number>();
   const deleteCapabilityBySourceChat = new Map<number, boolean>();
   const sourceAdminByChatAndUser = new Map<string, boolean>();
-  const driverMembershipByUser = new Map<number, boolean>();
+  const driverMembershipByChatAndUser = new Map<string, boolean>();
+  const driverInputPeerByChatId = new Map<number, any>();
   const highestSeenSourceMessageId = new Map<number, number>();
   const periodicCatchUpIntervalMs = 30_000;
   const periodicCatchUpLimit = Math.max(50, startupBackfillLimit * 4);
@@ -629,6 +735,49 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     return task;
   };
 
+  const resolveDriverInputPeer = async (driverChatId: number, forceRefresh = false): Promise<any> => {
+    if (!forceRefresh) {
+      const cached = driverInputPeerByChatId.get(driverChatId);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    if (forceRefresh) {
+      driverInputPeerByChatId.delete(driverChatId);
+      // Refresh local dialog/entity cache after membership or permission changes.
+      await client.getDialogs({ limit: 500 });
+    }
+
+    const inputPeer = await client.getInputEntity(driverChatId);
+    driverInputPeerByChatId.set(driverChatId, inputPeer);
+    return inputPeer;
+  };
+
+  const withDriverPeerRetry = async <T>(
+    operationName: string,
+    driverChatId: number,
+    operation: (driverInputPeer: any) => Promise<T>
+  ): Promise<T> => {
+    try {
+      const driverInputPeer = await resolveDriverInputPeer(driverChatId);
+      return await operation(driverInputPeer);
+    } catch (error) {
+      if (!isInputEntityResolveError(error)) {
+        throw error;
+      }
+
+      await writeWarn("Driver chat peer unresolved, refreshing dialogs and retrying", {
+        operation: operationName,
+        driverChatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      const driverInputPeer = await resolveDriverInputPeer(driverChatId, true);
+      return await operation(driverInputPeer);
+    }
+  };
+
   const markSeenSourceMessageId = (sourceChatIdNumber: number, sourceMessageId: number): void => {
     if (!Number.isInteger(sourceMessageId) || sourceMessageId <= 0) {
       return;
@@ -668,6 +817,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
   const resolveSenderProtectionFlags = async (
     sourceChatIdNumber: number,
+    driverChatId: number,
     senderId: string
   ): Promise<{ isSourceAdmin: boolean; isDriverChatMember: boolean }> => {
     const senderUserId = toPositiveUserId(senderId);
@@ -697,12 +847,13 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       sourceAdminByChatAndUser.set(sourceAdminCacheKey, isSourceAdmin);
     }
 
-    let isDriverChatMember = driverMembershipByUser.get(senderUserId);
+    const driverMembershipCacheKey = `${driverChatId}:${senderUserId}`;
+    let isDriverChatMember = driverMembershipByChatAndUser.get(driverMembershipCacheKey);
     if (isDriverChatMember === undefined) {
       try {
         const participantResult = await client.invoke(
           new Api.channels.GetParticipant({
-            channel: env.DRIVER_CHAT_ID,
+            channel: driverChatId,
             participant: senderUserId
           })
         );
@@ -711,20 +862,22 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       } catch {
         isDriverChatMember = false;
       }
-      driverMembershipByUser.set(senderUserId, isDriverChatMember);
+      driverMembershipByChatAndUser.set(driverMembershipCacheKey, isDriverChatMember);
     }
 
     return { isSourceAdmin, isDriverChatMember };
   };
 
-  const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage): Promise<void> => {
+  const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage, driverChatId: number): Promise<void> => {
     const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, payload.sourceChatUsername);
     if (sourceMessageLink) {
       try {
         await runThrottledTelegramWrite("send_source_link_fallback", async () =>
-          client.sendMessage(env.DRIVER_CHAT_ID, {
-            message: sourceMessageLink
-          })
+          withDriverPeerRetry("send_source_link_fallback", driverChatId, async (driverInputPeer) =>
+            client.sendMessage(driverInputPeer, {
+              message: sourceMessageLink
+            })
+          )
         );
       } catch (linkSendError) {
         await writeWarn("Failed to send source link fallback to driver chat", {
@@ -744,6 +897,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   const buildActions = (
     payload: UnifiedIncomingMessage,
     sourceChatIdNumber: number,
+    driverChatId: number,
     canDeleteFromSource: boolean,
     resolveForwardFromPeer: () => Promise<any>,
     resolveSenderEntity: () => Promise<any | null>
@@ -751,9 +905,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     const actions: UnifiedMessageActions = {
       sendToDriver: async (formattedText, _originalText) => {
         const sent = await runThrottledTelegramWrite("send_driver_summary", async () =>
-          client.sendMessage(env.DRIVER_CHAT_ID, {
-            message: formattedText
-          })
+          withDriverPeerRetry("send_driver_summary", driverChatId, async (driverInputPeer) =>
+            client.sendMessage(driverInputPeer, {
+              message: formattedText
+            })
+          )
         );
         let forwardedOriginal = false;
         let forwardedContactVisible = false;
@@ -761,10 +917,12 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         try {
           const fromPeer = await resolveForwardFromPeer();
           const forwardedMessages = await runThrottledTelegramWrite("forward_original_message", async () =>
-            client.forwardMessages(env.DRIVER_CHAT_ID, {
-              messages: [payload.sourceMessageId],
-              fromPeer
-            })
+            withDriverPeerRetry("forward_original_message", driverChatId, async (driverInputPeer) =>
+              client.forwardMessages(driverInputPeer, {
+                messages: [payload.sourceMessageId],
+                fromPeer
+              })
+            )
           );
           forwardedOriginal = true;
 
@@ -778,7 +936,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             error: forwardError instanceof Error ? forwardError.message : String(forwardError)
           });
 
-          await sendSourceLinkFallback(payload);
+          await sendSourceLinkFallback(payload, driverChatId);
         }
 
         return {
@@ -831,6 +989,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
   const processStoredSourceMessage = async (
     sourceChatIdNumber: number,
+    driverChatId: number,
     message: any,
     canDeleteFromSource: boolean,
     shouldScanByMessageId: (messageId: number) => boolean
@@ -851,13 +1010,15 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return { scanned: true, leadResult: null };
       }
 
-      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, built.payload.senderId);
+      const effectiveDriverChatId = resolvePreferredDriverChatIdByRoute(built.payload, driverChatId);
+      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, built.payload.senderId);
       built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
       built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
 
       const actions = buildActions(
         built.payload,
         sourceChatIdNumber,
+        effectiveDriverChatId,
         canDeleteFromSource,
         async () => sourceChatIdNumber,
         async () => built.senderEntity
@@ -887,6 +1048,15 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
     for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
       try {
+        const sourceRegion = getSourceRegionByPassengerChatId(sourceChatIdNumber);
+        const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
+        if (!sourceRegion || driverChatId === null) {
+          await writeWarn("Skipping startup backfill: source chat missing region/driver mapping", {
+            sourceChatId: String(sourceChatIdNumber)
+          });
+          continue;
+        }
+
         const canDeleteFromSource =
           env.DELETE_SOURCE_MESSAGE_IF_ADMIN && env.STARTUP_BACKFILL_DELETE_SOURCE
             ? await resolveDeleteCapability(sourceChatIdNumber)
@@ -899,6 +1069,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         const latestStoredSourceMessageId = latestStored?.sourceMessageId ?? 0;
         const ordered = await getOrderedSourceMessages(sourceChatIdNumber, startupBackfillLimit);
         markSeenSourceMessageId(sourceChatIdNumber, latestStoredSourceMessageId);
+        const shouldResyncRecentMessages = sourceRegion === "TASHKENT";
 
         let processedCount = 0;
         let sentCount = 0;
@@ -912,9 +1083,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
           const result = await processStoredSourceMessage(
             sourceChatIdNumber,
+            driverChatId,
             message,
             canDeleteFromSource,
-            (messageId) => messageId > latestStoredSourceMessageId
+            (messageId) => shouldResyncRecentMessages || messageId > latestStoredSourceMessageId
           );
           if (!result.leadResult) {
             continue;
@@ -938,6 +1110,9 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
         await writeInfo("Userbot startup backfill completed", {
           sourceChatId: String(sourceChatIdNumber),
+          sourceRegion,
+          driverChatId,
+          resyncedRecentMessages: shouldResyncRecentMessages,
           scanned: ordered.length,
           limit: startupBackfillLimit,
           latestStoredSourceMessageId,
@@ -965,6 +1140,15 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     try {
       for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
         try {
+          const sourceRegion = getSourceRegionByPassengerChatId(sourceChatIdNumber);
+          const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
+          if (!sourceRegion || driverChatId === null) {
+            await writeWarn("Skipping periodic catch-up: source chat missing region/driver mapping", {
+              sourceChatId: String(sourceChatIdNumber)
+            });
+            continue;
+          }
+
           const ordered = await getOrderedSourceMessages(sourceChatIdNumber, periodicCatchUpLimit);
           const canDeleteFromSource = env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? await resolveDeleteCapability(sourceChatIdNumber) : false;
 
@@ -980,6 +1164,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
             const result = await processStoredSourceMessage(
               sourceChatIdNumber,
+              driverChatId,
               message,
               canDeleteFromSource,
               (messageId) => messageId > (highestSeenSourceMessageId.get(sourceChatIdNumber) ?? 0)
@@ -1005,6 +1190,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           if (scannedFresh > 0) {
             await writeInfo("Userbot periodic catch-up completed", {
               sourceChatId: String(sourceChatIdNumber),
+              sourceRegion,
+              driverChatId,
               scannedFresh,
               processed: processedCount,
               sent: sentCount,
@@ -1049,7 +1236,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             const candidatePeer = toNumberId(getPeerId(peerId, true));
             const shouldIgnoreLog =
               candidatePeer === null ||
-              candidatePeer === env.DRIVER_CHAT_ID ||
+              isDriverChatId(candidatePeer) ||
               candidatePeer === env.ADMIN_TELEGRAM_ID ||
               env.PASSENGER_CHAT_IDS.includes(candidatePeer);
 
@@ -1072,9 +1259,19 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return;
       }
 
+      const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
+      if (driverChatId === null) {
+        await writeWarn("Message skipped: source chat has no driver mapping", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        });
+        return;
+      }
+      const effectiveDriverChatId = resolvePreferredDriverChatIdByRoute(payload, driverChatId);
+
       markSeenSourceMessageId(sourceChatIdNumber, payload.sourceMessageId);
 
-      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, payload.senderId);
+      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, payload.senderId);
       payload.isSourceAdmin = senderFlags.isSourceAdmin;
       payload.isDriverChatMember = senderFlags.isDriverChatMember;
 
@@ -1082,6 +1279,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       const actions = buildActions(
         payload,
         sourceChatIdNumber,
+        effectiveDriverChatId,
         canDeleteFromSource,
         async () => (await event.getInputChat()) ?? sourceChatIdNumber,
         async () => await event.message.getSender().catch(() => null)
@@ -1092,12 +1290,16 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       if (result.processed) {
         await writeInfo("Userbot message processed", {
           sourceChatId: payload.sourceChatId,
+          sourceRegion: payload.sourceRegion,
+          driverChatId: effectiveDriverChatId,
           sourceMessageId: payload.sourceMessageId,
           status: LeadStatus.SENT
         });
       } else {
         await writeWarn("Userbot message skipped", {
           sourceChatId: payload.sourceChatId,
+          sourceRegion: payload.sourceRegion,
+          driverChatId: effectiveDriverChatId,
           sourceMessageId: payload.sourceMessageId,
           reason: result.reason
         });
@@ -1139,7 +1341,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
   await writeInfo("Userbot listener started", {
     sourceChats: env.PASSENGER_CHAT_IDS,
-    driverChat: env.DRIVER_CHAT_ID,
+    passengerByRegion: env.PASSENGER_CHAT_IDS_BY_REGION,
+    driverByRegion: env.DRIVER_CHAT_ID_BY_REGION,
     adminId: env.ADMIN_TELEGRAM_ID
   });
 }

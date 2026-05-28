@@ -1,5 +1,5 @@
 import { prisma } from "./prisma/client.js";
-import { env } from "./config/env.js";
+import { env, getSourceRegionByPassengerChatId } from "./config/env.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
 import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
 import { writeError, writeInfo, writeWarn } from "./services/logger.service.js";
@@ -40,7 +40,7 @@ function getEntityTitle(entity: any): string {
 
 async function validateSourceChats(client: TelegramClient): Promise<void> {
   const validIds: number[] = [];
-  const resolvedTitles: Array<{ id: number; title: string }> = [];
+  const resolvedTitles: Array<{ id: number; region: string; title: string }> = [];
   const dialogsByChatId = new Map<number, any>();
 
   try {
@@ -69,7 +69,7 @@ async function validateSourceChats(client: TelegramClient): Promise<void> {
     try {
       const entity = dialogsByChatId.get(chatId) ?? (await client.getEntity(chatId));
       validIds.push(chatId);
-      resolvedTitles.push({ id: chatId, title: getEntityTitle(entity) });
+      resolvedTitles.push({ id: chatId, region: getSourceRegionByPassengerChatId(chatId) ?? "UNKNOWN", title: getEntityTitle(entity) });
     } catch (error) {
       await writeWarn("Skipping invalid/unavailable passenger source chat", {
         chatId,
@@ -191,7 +191,8 @@ async function startUserbotMode(): Promise<void> {
       meId: me.id?.toString(),
       username: (me as any).username ?? null,
       sourceChatIds: env.PASSENGER_CHAT_IDS,
-      driverChatId: env.DRIVER_CHAT_ID
+      passengerByRegion: env.PASSENGER_CHAT_IDS_BY_REGION,
+      driverByRegion: env.DRIVER_CHAT_ID_BY_REGION
     });
 
     const shutdown = async (signal: string): Promise<void> => {
