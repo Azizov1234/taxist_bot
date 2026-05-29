@@ -125,8 +125,8 @@ const PRICE_QUERY_KEYWORDS_NORMALIZED = [
 ].map((keyword) => normalizeText(keyword));
 
 const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
-  /\b(?:taxi|taksi|takis|mashina|moshina)\b.{0,24}\b(?:kerak|kere|kerak edi|kere edi|bormi)\b/iu,
-  /\b(?:bormi|bori?mi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
+  /\b(?:taxi|taksi|takis|mashina|moshina)\b.{0,24}\b(?:kerak|kere|kerak edi|kere edi|bormi|bori?mi|yo'?qmi|yuqmi)\b/iu,
+  /\b(?:bormi|bori?mi|yo'?qmi|yuqmi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
   /\b(?:kerak|kere|kerak edi|kere edi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
   /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|kerak|krk|kera|kk)\b/iu,
   /\b(?:kk|krk)\b.{0,10}\b(?:taxi|taksi|takis)\b/iu,
@@ -140,7 +140,7 @@ const PASSENGER_SOFT_SIGNAL_REGEX = /\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovch
 const PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX =
   /(?:^|[^\p{L}\p{N}])(?:\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438)(?=$|[^\p{L}\p{N}])/iu;
 const TAXI_NEED_INTENT_REGEX =
-  /\b(?:taxi|taksi|takis|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:kerak|kere|kk|krk|bormi|bori?mi|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu;
+  /\b(?:taxi|taksi|takis|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:kerak|kere|kk|krk|bormi|bori?mi|yo'?qmi|yuqmi|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu;
 const CHAT_NOISE_PATTERNS: RegExp[] = [
   /^(?:ok+|xo?p|hop|bop|boldi|bo'?ldi|ha|yo'?q|bor|oldim|olindi|tushunarli|kerakmas|keremas|zakaz\s*kerakmas|zakaz\s*keremas|zaks\s*keremas)$/iu,
   /^(?:assalomu?\s*alaykum|asalomu?\s*alaykum|salom|va\s*alaykum\s*assalom|alaykum\s*assalom)$/iu,
@@ -555,6 +555,12 @@ function buildPrivateFormatHintMessage(): string {
 }
 
 function buildPrivateForwardSecretHintMessage(): string {
+  const helpGroups = parseHelpGroupLinks(env.PASSENGER_HELP_GROUP_LINK);
+  const helpGroupsLine =
+    helpGroups.length > 0
+      ? ["", "📌 Tezroq javob uchun admin guruhlar:", ...helpGroups.map((link) => `- ${link}`)].join("\n")
+      : "";
+
   return [
     "✅ So'rovingiz qabul qilindi va taksi guruhiga yuborildi.",
     "⚠️ Muhim eslatma:",
@@ -565,7 +571,8 @@ function buildPrivateForwardSecretHintMessage(): string {
     "1) Telegram username qo'shing",
     "2) Telefon raqamingizni xabarda yozing",
     "",
-    "Shunda haydovchilar siz bilan tezroq bog'lanadi."
+    "Shunda haydovchilar siz bilan tezroq bog'lanadi.",
+    helpGroupsLine
   ].join("\n");
 }
 
