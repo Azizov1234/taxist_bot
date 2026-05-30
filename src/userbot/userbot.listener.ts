@@ -235,6 +235,38 @@ function parseFloodWaitSeconds(error: unknown): number | null {
   return null;
 }
 
+type SessionAuthErrorType = "AUTH_KEY_DUPLICATED" | "AUTH_KEY_INVALID" | "SESSION_REVOKED";
+
+function classifySessionAuthError(error: unknown): SessionAuthErrorType | null {
+  const message = (error instanceof Error ? error.message : String(error)).toUpperCase();
+
+  if (message.includes("AUTH_KEY_DUPLICATED")) {
+    return "AUTH_KEY_DUPLICATED";
+  }
+
+  if (message.includes("AUTH_KEY_INVALID") || message.includes("AUTH_KEY_UNREGISTERED")) {
+    return "AUTH_KEY_INVALID";
+  }
+
+  if (message.includes("SESSION_REVOKED") || message.includes("SESSION_EXPIRED")) {
+    return "SESSION_REVOKED";
+  }
+
+  return null;
+}
+
+function buildSessionRecoveryHint(errorType: SessionAuthErrorType): string {
+  if (errorType === "AUTH_KEY_DUPLICATED") {
+    return "TELEGRAM_STRING_SESSION bir nechta joyda ishlatilgan. Yangi session oling va faqat bitta instance qoldiring.";
+  }
+
+  if (errorType === "AUTH_KEY_INVALID") {
+    return "TELEGRAM_STRING_SESSION endi yaroqsiz. Yangi session oling va .env ni yangilang.";
+  }
+
+  return "Telegram session bekor qilingan. Yangi session oling va .env ni yangilang.";
+}
+
 function isInputEntityResolveError(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toUpperCase();
   return (
@@ -692,6 +724,31 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   let outboundQueue: Promise<unknown> = Promise.resolve();
   let lastOutboundWriteAt = 0;
   let periodicCatchUpInFlight = false;
+  let listenerBlockedBySessionAuthError = false;
+
+  const handleSessionAuthFailure = async (
+    stage: "startup_backfill" | "periodic_catch_up" | "event_handler",
+    error: unknown,
+    meta?: Record<string, unknown>
+  ): Promise<boolean> => {
+    const errorType = classifySessionAuthError(error);
+    if (!errorType) {
+      return false;
+    }
+
+    const recoveryHint = buildSessionRecoveryHint(errorType);
+    listenerBlockedBySessionAuthError = true;
+    state.paused = true;
+
+    await writeError("Userbot listener stopped: unrecoverable Telegram session error", error, {
+      stage,
+      errorType,
+      recoveryHint,
+      ...meta
+    });
+
+    return true;
+  };
 
   const runThrottledTelegramWrite = async <T>(operationName: string, operation: () => Promise<T>): Promise<T> => {
     const task = outboundQueue.then(async () => {
@@ -1027,6 +1084,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       const leadResult = await processIncomingLead(built.payload, actions);
       return { scanned: true, leadResult };
     } catch (error) {
+      if (classifySessionAuthError(error)) {
+        throw error;
+      }
+
       await writeWarn("Failed to process stored source message", {
         sourceChatId: String(sourceChatIdNumber),
         sourceMessageId: messageId,
@@ -1042,7 +1103,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   };
 
   const runStartupBackfill = async (): Promise<void> => {
-    if (startupBackfillLimit === 0) {
+    if (startupBackfillLimit === 0 || listenerBlockedBySessionAuthError) {
       return;
     }
 
@@ -1122,6 +1183,13 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           topSkippedReasons
         });
       } catch (error) {
+        const isSessionAuthFailure = await handleSessionAuthFailure("startup_backfill", error, {
+          sourceChatId: String(sourceChatIdNumber)
+        });
+        if (isSessionAuthFailure) {
+          throw new Error(buildSessionRecoveryHint(classifySessionAuthError(error)!));
+        }
+
         await writeWarn("Userbot startup backfill failed for source chat", {
           sourceChatId: String(sourceChatIdNumber),
           error: error instanceof Error ? error.message : String(error)
@@ -1131,7 +1199,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   };
 
   const runPeriodicCatchUp = async (): Promise<void> => {
-    if (periodicCatchUpInFlight) {
+    if (periodicCatchUpInFlight || listenerBlockedBySessionAuthError) {
       return;
     }
 
@@ -1199,6 +1267,13 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             });
           }
         } catch (error) {
+          const isSessionAuthFailure = await handleSessionAuthFailure("periodic_catch_up", error, {
+            sourceChatId: String(sourceChatIdNumber)
+          });
+          if (isSessionAuthFailure) {
+            break;
+          }
+
           await writeWarn("Userbot periodic catch-up failed for source chat", {
             sourceChatId: String(sourceChatIdNumber),
             error: error instanceof Error ? error.message : String(error)
@@ -1212,6 +1287,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
   const handler = async (event: NewMessageEvent): Promise<void> => {
     try {
+      if (listenerBlockedBySessionAuthError) {
+        return;
+      }
+
       const commandText = toText(event.message.message).trim();
       const commandHandled = await handleAdminCommand(client, event, commandText, state);
       if (commandHandled) {
@@ -1305,6 +1384,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         });
       }
     } catch (error) {
+      const isSessionAuthFailure = await handleSessionAuthFailure("event_handler", error);
+      if (isSessionAuthFailure) {
+        return;
+      }
+
       await writeError("Unhandled userbot listener error", error);
     }
   };
