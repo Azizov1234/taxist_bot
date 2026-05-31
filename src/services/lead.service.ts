@@ -85,7 +85,7 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
       /\b(?:taxi|taksi)\b.{0,30}\bbor\b.{0,30}\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b(?:.{0,20}\bbo'?lsa\b)?(?:.{0,30}\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b)/iu
   },
   { id: "taksi_bor", pattern: /\b(?:taxi|taksi)\s*bor\b/iu },
-  { id: "joy_bor", pattern: /\b(?:\d{1,2}\s*(?:ta\s*)?)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu },
+  { id: "joy_bor", pattern: /\b(?:\d{1,2}\s*(?:(?:ta)|(?:\u0442\u0430))?\s*)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu },
   {
     id: "joy_bor_cyrillic",
     pattern:
@@ -330,7 +330,7 @@ function extractRouteParts(route: string | null): { from: string | null; to: str
 
 function extractPassengerCount(text: string): number | null {
   const regexes = [
-    /(?:^|[^\p{L}\p{N}])(\d{1,2})\s*(?:ta\s*)?(?:kishi|odam|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c)(?=$|[^\p{L}\p{N}])/iu,
+    /(?:^|[^\p{L}\p{N}])(\d{1,2})\s*(?:(?:ta)|(?:\u0442\u0430))?\s*(?:kishi|odam|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c)(?=$|[^\p{L}\p{N}])/iu,
     /(?:^|[^\p{L}\p{N}])(?:kishi|odam|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c)\s*(\d{1,2})(?=$|[^\p{L}\p{N}])/iu
   ];
 

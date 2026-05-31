@@ -29,71 +29,6 @@ interface ListenerState {
   paused: boolean;
 }
 
-const REGION_ROUTE_PATTERNS: Record<SourceRegion, RegExp[]> = {
-  TASHKENT: [
-    /\bt[o0]sh?k?e?n?t[nm]?[\p{L}\p{N}_]*\b/iu,
-    /\btashk?e?n?t[nm]?[\p{L}\p{N}_]*\b/iu,
-    /\btoshketn[\p{L}\p{N}_]*\b/iu,
-    /\btoshektn[\p{L}\p{N}_]*\b/iu,
-    /\bтошкент[\p{L}\p{N}_]*\b/iu,
-    /\bсергели[\p{L}\p{N}_]*\b/iu,
-    /\bchilonzor[\p{L}\p{N}_]*\b/iu,
-    /\byunusobod[\p{L}\p{N}_]*\b/iu,
-    /\bchinoz[\p{L}\p{N}_]*\b/iu,
-    /\bolmaliq[\p{L}\p{N}_]*\b/iu,
-    /\bangren[\p{L}\p{N}_]*\b/iu,
-    /\bohangaron[\p{L}\p{N}_]*\b/iu
-  ],
-  GULISTON: [
-    /\bguliston[\p{L}\p{N}_]*\b/iu,
-    /\bbekobod[\p{L}\p{N}_]*\b/iu,
-    /\bshirin[\p{L}\p{N}_]*\b/iu,
-    /\byangiyer[\p{L}\p{N}_]*\b/iu,
-    /\bsirdaryo[\p{L}\p{N}_]*\b/iu,
-    /\bгулистон[\p{L}\p{N}_]*\b/iu,
-    /\bбекобод[\p{L}\p{N}_]*\b/iu
-  ]
-};
-
-function normalizeRouteText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[\u2019`']/g, "'")
-    .replace(/[^\p{L}\p{N}\s']/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function routeMentionsRegion(routeText: string, region: SourceRegion): boolean {
-  const normalized = normalizeRouteText(routeText);
-  if (!normalized) {
-    return false;
-  }
-
-  return REGION_ROUTE_PATTERNS[region].some((pattern) => pattern.test(normalized));
-}
-
-function resolvePreferredDriverChatIdByRoute(payload: UnifiedIncomingMessage, fallbackDriverChatId: number): number {
-  const normalizedText = normalizeRouteText(payload.text);
-  if (!normalizedText) {
-    return fallbackDriverChatId;
-  }
-
-  const mentionsTashkent = routeMentionsRegion(normalizedText, "TASHKENT");
-  const mentionsGuliston = routeMentionsRegion(normalizedText, "GULISTON");
-
-  // Business rule: if route mentions Toshkent, always route to Toshkent driver chat only.
-  if (mentionsTashkent && env.DRIVER_CHAT_ID_TASHKENT !== null) {
-    return env.DRIVER_CHAT_ID_TASHKENT;
-  }
-
-  // If Toshkent keyword is not present but Guliston-side locations are present, route to Guliston.
-  if (!mentionsTashkent && mentionsGuliston && env.DRIVER_CHAT_ID_GULISTON !== null) {
-    return env.DRIVER_CHAT_ID_GULISTON;
-  }
-
-  return fallbackDriverChatId;
-}
 
 function toText(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -1067,7 +1002,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return { scanned: true, leadResult: null };
       }
 
-      const effectiveDriverChatId = resolvePreferredDriverChatIdByRoute(built.payload, driverChatId);
+      const effectiveDriverChatId = driverChatId;
       const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, built.payload.senderId);
       built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
       built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
@@ -1346,7 +1281,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         });
         return;
       }
-      const effectiveDriverChatId = resolvePreferredDriverChatIdByRoute(payload, driverChatId);
+      const effectiveDriverChatId = driverChatId;
 
       markSeenSourceMessageId(sourceChatIdNumber, payload.sourceMessageId);
 
