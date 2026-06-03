@@ -227,6 +227,16 @@ const PASSENGER_MANUAL: Array<{ phrase: string; weight: number }> = [
   { phrase: "tezroq kerak", weight: 7 },
   { phrase: "shoshilinch kerak", weight: 8 },
   { phrase: "hozir kerak", weight: 7 },
+  { phrase: "srochna yuramiz", weight: 9 },
+  { phrase: "srowna yuramiz", weight: 9 },
+  { phrase: "srochno yuramiz", weight: 9 },
+  { phrase: "srowno yuramiz", weight: 9 },
+  { phrase: "shaharga srochna yuramiz", weight: 10 },
+  { phrase: "waharga srowna yuramiz", weight: 10 },
+  { phrase: "maydan shaharga srochna yuramiz", weight: 10 },
+  { phrase: "maydan waharga srowna yuramiz", weight: 10 },
+  { phrase: "gulistondan shiringa 2 kishi bor", weight: 10 },
+  { phrase: "shiringa gulistondan 2 kishi bor", weight: 10 },
   { phrase: "bugun kerak", weight: 7 }
 ];
 
@@ -523,6 +533,10 @@ const REGEX_KEYWORDS: Array<{ category: KeywordCategory; pattern: string; weight
     weight: 9
   },
   { category: KeywordCategory.PASSENGER, pattern: "\\b\\w+\\s*dan\\s+\\w+\\s*ga\\b", weight: 4 },
+  { category: KeywordCategory.PASSENGER, pattern: "\\b\\p{L}+ga\\s+\\p{L}+dan\\s+\\d+\\s*(?:kishi|odam)\\s*bor\\b", weight: 9 },
+  { category: KeywordCategory.PASSENGER, pattern: "\\b\\p{L}+\\u0433\\u0430\\s+\\p{L}+\\u0434\\u0430\\u043d\\s+\\d+\\s*(?:\\u043a\\u0438\\u0448\\u0438|\\u043e\\u0434\\u0430\\u043c)\\s*\\u0431\\u043e\\u0440\\b", weight: 9 },
+  { category: KeywordCategory.PASSENGER, pattern: "\\b(?:srochna|srochno|srowna|srowno|shoshilinch)\\b.{0,30}\\b(?:yuramiz|yuramz|boramiz|ketamiz)\\b", weight: 9 },
+  { category: KeywordCategory.PASSENGER, pattern: "\\b\\p{L}+\\s+(?:shaharga|waharga)\\b.{0,25}\\b(?:srochna|srochno|srowna|srowno)\\b.{0,20}\\b(?:yuramiz|yuramz)\\b", weight: 10 },
   { category: KeywordCategory.PASSENGER, pattern: "\\b\\w+\\s*дан\\s+\\w+\\s*га\\b", weight: 4 },
   { category: KeywordCategory.PASSENGER, pattern: "\\b(ketish|borish|chiqish)\\s*(kerak|kere)\\b", weight: 10 },
   { category: KeywordCategory.PASSENGER, pattern: "\\b(кетиш|бориш|чиқиш)\\s*(керак|кере)\\b", weight: 10 },

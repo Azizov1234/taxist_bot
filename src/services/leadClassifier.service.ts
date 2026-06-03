@@ -174,7 +174,7 @@ const GENERIC_LOCATION_TOKENS = new Set([
 const UZBEK_ENGLISH_HINTS: Array<{ pattern: RegExp; hint: string }> = [
   { pattern: /\b(taxi|taksi|taxsi|takis)\b/iu, hint: "taxi request" },
   { pattern: /\b(kerak|kere|kerek|ker|krk)\b/iu, hint: "needs a ride" },
-  { pattern: /\b(hozir|tez|srochna|shoshilinch)\b/iu, hint: "urgent / now" },
+  { pattern: /\b(hozir|tez|srochna|srochno|srowna|srowno|shoshilinch)\b/iu, hint: "urgent / now" },
   { pattern: /\b(qayerdan|qayerga|qayerda|qaerdan|qaerga)\b/iu, hint: "location question (from/to/where)" },
   { pattern: /\b(ketish|borish|ketaman|boraman)\b/iu, hint: "travel intent (go/leave)" },
   { pattern: /\b(odam|kishi)\b/iu, hint: "passenger count mentioned" },

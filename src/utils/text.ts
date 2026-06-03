@@ -8,6 +8,9 @@ const PHONE_REGEX = /(?:\+?\d[\d\s().-]{7,}\d)/gu;
 
 function collapseOverstretchedLatin(value: string): string {
   return value
+    .replace(/\bsrowna\b/gu, "srochna")
+    .replace(/\bsrowno\b/gu, "srochno")
+    .replace(/\bwahar(?=\b|ga|dan|da|gacha)/gu, "shahar")
     .replace(/\btaxii+\b/gu, "taxi")
     .replace(/\btaxs+i+\b/gu, "taxi")
     .replace(/\btaxs+\b/gu, "taxi")
