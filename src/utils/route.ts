@@ -1,9 +1,9 @@
-const CLEAN_TAIL_REGEX = /\b(kerak|kere|edi|borish|ketish|ketadi|ketaman|boradi|boraman|yo'lovchi|yolovchi|yulovchi|taksi|taxi|mashina|moshina)\b/giu;
+const CLEAN_TAIL_REGEX = /\b(kerak|kere|edi|borish|ketish|ketadi|ketaman|boradi|boraman|yo'lovchi|yolovchi|yulovchi|taksi|taxi|taxsi|mashina|moshina)\b/giu;
 const NON_PLACE_WORD_REGEX =
   /\b(ertaga|ertalab|bugun|kecha|indin|soat|larda|larida|taxminan|assalomu|alaykum|aleykum|asalomu|salom|ассалому|ассаломалекум|ассаломуалекум|алейкум|салом)\b/giu;
 
 const ROUTE_INTENT_REGEX =
-  /(?:^|[^\p{L}\p{N}])(?:taxi|taksi|mashina|moshina|yo'lovchi|yolovchi|yulovchi|kishi|odam|ketaman|ketamiz|ketadi|ketish|ketadigan|boraman|boramiz|boradi|borish|bormi|bori?mi|yo'?qmi|yuqmi|olib ket|ob ket|joy bormi|nechida|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u043a\u0435\u0442\u0430\u043c\u0430\u043d|\u043a\u0435\u0442\u0430\u043c\u0438\u0437|\u043a\u0435\u0442\u0430\u0434\u0438|\u043a\u0435\u0442\u0438\u0448|\u0431\u043e\u0440\u0438\u0448|\u0431\u043e\u0440\u043c\u0438|\u043a\u0435\u0440\u0430\u043a)(?=$|[^\p{L}\p{N}])/iu;
+  /(?:^|[^\p{L}\p{N}])(?:taxi|taksi|taxsi|mashina|moshina|yo'lovchi|yolovchi|yulovchi|kishi|odam|ketaman|ketamiz|ketadi|ketish|ketadigan|boraman|boramiz|boradi|borish|bormi|bori?mi|yo'?qmi|yuqmi|olib ket|ob ket|joy bormi|nechida|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u043a\u0435\u0442\u0430\u043c\u0430\u043d|\u043a\u0435\u0442\u0430\u043c\u0438\u0437|\u043a\u0435\u0442\u0430\u0434\u0438|\u043a\u0435\u0442\u0438\u0448|\u0431\u043e\u0440\u0438\u0448|\u0431\u043e\u0440\u043c\u0438|\u043a\u0435\u0440\u0430\u043a)(?=$|[^\p{L}\p{N}])/iu;
 const FROM_ONLY_PASSENGER_SIGNAL_REGEX =
   /(?:(?:^|[^\p{L}\p{N}])(?:\d{1,2}|bir|bitta|ikki|uch|to'?rt|tort|besh|olti|yetti|sakkiz|to'?qqiz|toqiz|on|\u0431\u0438\u0440|\u0431\u0438\u0442\u0442\u0430|\u0438\u043a\u043a\u0438|\u0443\u0447|\u0442\u045e\u0440\u0442|\u0442\u04ef\u0440\u0442|\u0431\u0435\u0448|\u043e\u043b\u0442\u0438|\u0435\u0442\u0442\u0438|\u0441\u0430\u043a\u043a\u0438\u0437|\u0442\u045e\u049b\u049b\u0438\u0437|\u043e\u043d)\s*(?:(?:ta)|(?:\u0442\u0430))?\s*(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438)(?=$|[^\p{L}\p{N}]))|(?:\+?\d[\d\s()\-]{6,})/iu;
 const LOCATION_TOKEN_STOPWORDS = new Set([
@@ -24,16 +24,19 @@ const LOCATION_TOKEN_STOPWORDS = new Set([
   "gacha",
   "taksi",
   "taxi",
+  "taxsi",
   "mashina",
   "moshina",
   "kishi",
   "odam",
+  "bor",
+  "\u0431\u043e\u0440",
   "yo'lovchi",
   "yolovchi",
   "yulovchi"
 ]);
 const LOCATION_NOISE_TOKEN_REGEX =
-  /(?:^|[^\p{L}\p{N}])(?:\d{1,2}|kishi|odam|yo'?lovchi|yolovchi|yulovchi|taxi|taksi|mashina|moshina|hozir|hozirga|bugun|ertaga|ertalab|kechqurun|soat|srochno|kerak|kere)(?=$|[^\p{L}\p{N}])/iu;
+  /(?:^|[^\p{L}\p{N}])(?:\d{1,2}|kishi|odam|yo'?lovchi|yolovchi|yulovchi|taxi|taksi|taxsi|mashina|moshina|hozir|hozirga|bugun|ertaga|ertalab|kechqurun|soat|srochno|kerak|kere|bor|\u0431\u043e\u0440)(?=$|[^\p{L}\p{N}])/iu;
 const DESTINATION_STOPWORDS = new Set([
   "men",
   "man",
@@ -194,8 +197,19 @@ export function detectRoute(originalText: string): string | null {
     }
   }
 
+  const destinationBorPassengerPattern =
+    /(?<to>[\p{L}][\p{L}'`-]{1,29}(?:\s+[\p{L}][\p{L}'`-]{1,29}){0,2})\s*(ga|gacha|\u0433\u0430|\u043a\u0430)\s*(?:bor|\u0431\u043e\u0440)\s*(?:(?:\d{1,2}|bir|bitta|ikki|uch|to'?rt|tort|besh|olti|yetti|sakkiz|to'?qqiz|toqiz|on|\u0431\u0438\u0440|\u0431\u0438\u0442\u0442\u0430|\u0438\u043a\u043a\u0438|\u0443\u0447|\u0442\u045e\u0440\u0442|\u0442\u04ef\u0440\u0442|\u0431\u0435\u0448|\u043e\u043b\u0442\u0438|\u0435\u0442\u0442\u0438|\u0441\u0430\u043a\u043a\u0438\u0437|\u0442\u045e\u049b\u049b\u0438\u0437|\u043e\u043d)\s*(?:(?:ta)|(?:\u0442\u0430))?\s*)?(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi|\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438)(?=$|[^\p{L}\p{N}])/iu;
+  const destinationBorPassengerMatch = text.match(destinationBorPassengerPattern);
+
+  if (destinationBorPassengerMatch?.groups?.to) {
+    const to = cleanDestinationCandidate(destinationBorPassengerMatch.groups.to);
+    if (to && to.length > 1) {
+      return `Aniq emas -> ${to}`;
+    }
+  }
+
   const destinationTaxiQueryPattern =
-    /(?<to>[\p{L}][\p{L}'`-]{1,29}(?:\s+[\p{L}][\p{L}'`-]{1,29}){0,2})\s*(ga|gacha|\u0433\u0430|\u043a\u0430)\s*(?:bormi|bori?mi|yo'?qmi|yuqmi|\u0431\u043e\u0440\u043c\u0438)?\s*(?:taxi|taksi|mashina|moshina|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430)(?=$|[^\p{L}\p{N}])/iu;
+    /(?<to>[\p{L}][\p{L}'`-]{1,29}(?:\s+[\p{L}][\p{L}'`-]{1,29}){0,2})\s*(ga|gacha|\u0433\u0430|\u043a\u0430)\s*(?:bormi|bori?mi|yo'?qmi|yuqmi|\u0431\u043e\u0440\u043c\u0438)?\s*(?:taxi|taksi|taxsi|mashina|moshina|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430)(?=$|[^\p{L}\p{N}])/iu;
   const destinationTaxiQueryMatch = text.match(destinationTaxiQueryPattern);
 
   if (destinationTaxiQueryMatch?.groups?.to) {
@@ -240,7 +254,7 @@ export function detectRoute(originalText: string): string | null {
   }
 
   const twoLocationTaxiQueryPattern =
-    /(?<from>[\p{L}][\p{L}'`-]{2,29})\s+(?<to>[\p{L}][\p{L}'`-]{2,29})\s+(?:taxi|taksi|mashina|moshina|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430)\s*(?:bormi|bori?mi|yo'?qmi|yuqmi)?(?=$|[^\p{L}\p{N}])/iu;
+    /(?<from>[\p{L}][\p{L}'`-]{2,29})\s+(?<to>[\p{L}][\p{L}'`-]{2,29})\s+(?:taxi|taksi|taxsi|mashina|moshina|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430)\s*(?:bormi|bori?mi|yo'?qmi|yuqmi)?(?=$|[^\p{L}\p{N}])/iu;
   const twoLocationTaxiQueryMatch = text.match(twoLocationTaxiQueryPattern);
   if (twoLocationTaxiQueryMatch?.groups?.from && twoLocationTaxiQueryMatch.groups.to) {
     const from = trimGreetingPrefix(tidyPlace(twoLocationTaxiQueryMatch.groups.from));

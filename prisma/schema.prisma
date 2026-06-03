@@ -105,6 +105,8 @@ model KeywordDictionary {
   language   KeywordLanguage  @default(MIXED)
   matchType  KeywordMatchType @default(PHRASE)
   source     String?
+  frequency  Int              @default(0)
+  examples   Json?
   isActive   Boolean          @default(true)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
@@ -113,6 +115,7 @@ model KeywordDictionary {
   @@index([category, isActive])
   @@index([normalized])
   @@index([weight])
+  @@index([frequency])
   @@index([matchType])
 }
 

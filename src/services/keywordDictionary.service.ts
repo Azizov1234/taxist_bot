@@ -175,20 +175,20 @@ function toConfidence(scores: CategoryScores, category: LeadCategory): number {
 }
 
 function resolveCategory(scores: CategoryScores): LeadCategory {
-  if (scores.spam >= 9 && scores.spam >= scores.passenger + 2 && scores.spam >= scores.driver && scores.spam >= scores.cargo) {
-    return "IGNORE_SPAM";
-  }
-
-  if (scores.cargo >= 7 && scores.cargo >= scores.passenger + 1 && scores.cargo >= scores.driver && scores.cargo >= scores.spam) {
-    return "POSTAL_CARGO";
-  }
-
-  if (scores.driver >= 7 && scores.driver >= scores.passenger + 1 && scores.driver >= scores.cargo && scores.driver >= scores.spam) {
+  if (scores.driver >= scores.passenger + 3 && scores.driver >= 7 && scores.driver >= scores.cargo && scores.driver >= scores.spam) {
     return "DRIVER_AD";
   }
 
-  if (scores.passenger >= 6 && scores.passenger >= scores.driver && scores.passenger >= scores.cargo && scores.passenger >= scores.spam) {
+  if (scores.passenger >= scores.driver + 3 && scores.passenger >= 7 && scores.passenger >= scores.cargo && scores.passenger >= scores.spam) {
     return "PASSENGER_LEAD";
+  }
+
+  if (scores.cargo >= 7 && scores.cargo >= scores.spam && scores.cargo >= Math.max(scores.passenger, scores.driver) - 2) {
+    return "POSTAL_CARGO";
+  }
+
+  if (scores.spam >= 7 && scores.spam >= Math.max(scores.passenger, scores.driver, scores.cargo) - 2) {
+    return "IGNORE_SPAM";
   }
 
   return "AMBIGUOUS";
@@ -345,7 +345,7 @@ export function isRuleAmbiguous(result: DictionaryRuleResult): boolean {
   const sortedScores = [result.passenger_score, result.driver_score, result.cargo_score, result.spam_score].sort((a, b) => b - a);
   const top = sortedScores[0] ?? 0;
   const second = sortedScores[1] ?? 0;
-  return top <= 0 || top - second <= 1;
+  return top <= 0 || top - second < 3;
 }
 
 export async function listKeywordsByCategory(category: KeywordCategory, limit = 60): Promise<KeywordDictionary[]> {

@@ -71,7 +71,7 @@ const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace
 const runtimeModeSchema = z.enum(["userbot", "legacy"]);
 const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
 const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
-const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON"]);
+const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON", "KOMSOMOL"]);
 
 export type SourceRegion = z.infer<typeof sourceRegionSchema>;
 const SOURCE_REGIONS: SourceRegion[] = [...sourceRegionSchema.options];
@@ -103,9 +103,11 @@ const envSchema = z.object({
   PASSENGER_CHAT_IDS: optionalStringSchema,
   PASSENGER_CHAT_IDS_TASHKENT: optionalStringSchema,
   PASSENGER_CHAT_IDS_GULISTON: optionalStringSchema,
+  PASSENGER_CHAT_IDS_KOMSOMOL: optionalStringSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
   DRIVER_CHAT_ID_TASHKENT: optionalChatIdSchema,
   DRIVER_CHAT_ID_GULISTON: optionalChatIdSchema,
+  DRIVER_CHAT_ID_KOMSOMOL: optionalChatIdSchema,
   PASSENGER_HELP_GROUP_LINK: optionalStringSchema,
   DRIVER_PREMIUM_GROUP_LINK: optionalStringSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
@@ -138,7 +140,12 @@ const envSchema = z.object({
   LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
-  DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
+  DUPLICATE_WINDOW_MINUTES: optionalNumberSchema,
+  KEYWORD_SOURCE_CHAT_USERNAMES: optionalStringSchema,
+  KEYWORD_EXTRACT_LIMIT: optionalNumberSchema,
+  KEYWORD_EXTRACT_BATCH_SIZE: optionalNumberSchema,
+  KEYWORD_MIN_FREQUENCY: optionalNumberSchema,
+  KEYWORD_SAVE_EXAMPLES: optionalBooleanSchema
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -207,10 +214,11 @@ function hasProviderCredentials(provider: AIProviderName): boolean {
 const legacyPassengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
 const passengerChatIdsByRegion: Record<SourceRegion, number[]> = {
   TASHKENT: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_TASHKENT),
-  GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON)
+  GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON),
+  KOMSOMOL: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_KOMSOMOL)
 };
 
-if (passengerChatIdsByRegion.TASHKENT.length === 0 && passengerChatIdsByRegion.GULISTON.length === 0 && legacyPassengerChatIds.length > 0) {
+if (SOURCE_REGIONS.every((region) => passengerChatIdsByRegion[region].length === 0) && legacyPassengerChatIds.length > 0) {
   passengerChatIdsByRegion.TASHKENT = legacyPassengerChatIds;
 }
 
@@ -225,18 +233,19 @@ for (const region of SOURCE_REGIONS) {
   }
 }
 
-const passengerChatIds = [...new Set([...passengerChatIdsByRegion.TASHKENT, ...passengerChatIdsByRegion.GULISTON])];
+const passengerChatIds = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatIdsByRegion[region]))];
 
 if (passengerChatIds.length === 0 && !isGetIdsMode) {
   throw new Error(
-    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS or PASSENGER_CHAT_IDS_TASHKENT/PASSENGER_CHAT_IDS_GULISTON)"
+    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS or regional PASSENGER_CHAT_IDS_*)"
   );
 }
 
 const legacyDriverChatId = parsed.data.DRIVER_CHAT_ID;
 const driverChatIdByRegion: Record<SourceRegion, number | null> = {
   TASHKENT: parsed.data.DRIVER_CHAT_ID_TASHKENT ?? legacyDriverChatId ?? null,
-  GULISTON: parsed.data.DRIVER_CHAT_ID_GULISTON ?? legacyDriverChatId ?? null
+  GULISTON: parsed.data.DRIVER_CHAT_ID_GULISTON ?? legacyDriverChatId ?? null,
+  KOMSOMOL: parsed.data.DRIVER_CHAT_ID_KOMSOMOL ?? legacyDriverChatId ?? null
 };
 
 for (const region of SOURCE_REGIONS) {
@@ -246,7 +255,7 @@ for (const region of SOURCE_REGIONS) {
 }
 
 const driverChatIds = [...new Set(Object.values(driverChatIdByRegion).filter((chatId): chatId is number => chatId !== null))];
-const driverChatId = driverChatIdByRegion.TASHKENT ?? driverChatIdByRegion.GULISTON ?? (isGetIdsMode ? 0 : undefined);
+const driverChatId = SOURCE_REGIONS.map((region) => driverChatIdByRegion[region]).find((chatId): chatId is number => chatId !== null) ?? (isGetIdsMode ? 0 : undefined);
 
 if (driverChatId === undefined) {
   throw new Error("Invalid environment variables: DRIVER_CHAT_ID is required");
@@ -293,6 +302,9 @@ const telegramStartupConnectRetryMs = parsed.data.TELEGRAM_STARTUP_CONNECT_RETRY
 const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
 const listenerBackfillSeconds = parsed.data.LISTENER_BACKFILL_SECONDS ?? 180;
 const listenerStartupBackfillLimit = parsed.data.LISTENER_STARTUP_BACKFILL_LIMIT ?? 20;
+const keywordExtractLimit = parsed.data.KEYWORD_EXTRACT_LIMIT ?? 10_000;
+const keywordExtractBatchSize = parsed.data.KEYWORD_EXTRACT_BATCH_SIZE ?? 100;
+const keywordMinFrequency = parsed.data.KEYWORD_MIN_FREQUENCY ?? 2;
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
@@ -333,6 +345,18 @@ if (listenerStartupBackfillLimit < 0) {
   throw new Error("Invalid environment variables: LISTENER_STARTUP_BACKFILL_LIMIT must be 0 or greater");
 }
 
+if (keywordExtractLimit < 0) {
+  throw new Error("Invalid environment variables: KEYWORD_EXTRACT_LIMIT must be 0 or greater");
+}
+
+if (keywordExtractBatchSize <= 0) {
+  throw new Error("Invalid environment variables: KEYWORD_EXTRACT_BATCH_SIZE must be greater than 0");
+}
+
+if (keywordMinFrequency <= 0) {
+  throw new Error("Invalid environment variables: KEYWORD_MIN_FREQUENCY must be greater than 0");
+}
+
 if (providerOrder.length === 0) {
   throw new Error("Invalid environment variables: AI_PROVIDER_ORDER must include at least one valid provider");
 }
@@ -356,10 +380,12 @@ export const env = {
   PASSENGER_CHAT_IDS: passengerChatIds,
   PASSENGER_CHAT_IDS_TASHKENT: passengerChatIdsByRegion.TASHKENT,
   PASSENGER_CHAT_IDS_GULISTON: passengerChatIdsByRegion.GULISTON,
+  PASSENGER_CHAT_IDS_KOMSOMOL: passengerChatIdsByRegion.KOMSOMOL,
   PASSENGER_CHAT_IDS_BY_REGION: passengerChatIdsByRegion,
   DRIVER_CHAT_ID: driverChatId,
   DRIVER_CHAT_ID_TASHKENT: driverChatIdByRegion.TASHKENT,
   DRIVER_CHAT_ID_GULISTON: driverChatIdByRegion.GULISTON,
+  DRIVER_CHAT_ID_KOMSOMOL: driverChatIdByRegion.KOMSOMOL,
   DRIVER_CHAT_IDS: driverChatIds,
   DRIVER_CHAT_ID_BY_REGION: driverChatIdByRegion,
   PASSENGER_HELP_GROUP_LINK: parsed.data.PASSENGER_HELP_GROUP_LINK ?? null,
@@ -396,7 +422,12 @@ export const env = {
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
-  DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)
+  DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes),
+  KEYWORD_SOURCE_CHAT_USERNAMES: parsed.data.KEYWORD_SOURCE_CHAT_USERNAMES ?? "KamsamoltaksiN1,Dehqonobod_taksi24,kamsamolikmiz",
+  KEYWORD_EXTRACT_LIMIT: Math.round(keywordExtractLimit),
+  KEYWORD_EXTRACT_BATCH_SIZE: Math.round(keywordExtractBatchSize),
+  KEYWORD_MIN_FREQUENCY: Math.round(keywordMinFrequency),
+  KEYWORD_SAVE_EXAMPLES: parsed.data.KEYWORD_SAVE_EXAMPLES ?? true
 };
 
 export function getSourceRegionByPassengerChatId(chatId: number): SourceRegion | null {

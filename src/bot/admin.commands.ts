@@ -168,8 +168,10 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         `PASSENGER_CHAT_IDS: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
         `PASSENGER_CHAT_IDS_TASHKENT: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
         `PASSENGER_CHAT_IDS_GULISTON: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
+        `PASSENGER_CHAT_IDS_KOMSOMOL: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`,
         `DRIVER_CHAT_ID_TASHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
-        `DRIVER_CHAT_ID_GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`
+        `DRIVER_CHAT_ID_GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
+        `DRIVER_CHAT_ID_KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`
       ].join("\n")
     );
   });

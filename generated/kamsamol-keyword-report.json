@@ -1,0 +1,55 @@
+{
+  "createdAt": "2026-06-02T12:46:00.933Z",
+  "config": {
+    "sourceUsernames": [
+      "KamsamoltaksiN1",
+      "Dehqonobod_taksi24"
+    ],
+    "extractLimit": 10000,
+    "batchSize": 100,
+    "minFrequency": 2,
+    "saveExamples": true,
+    "generateOnly": false
+  },
+  "messagesRead": 0,
+  "textMessages": 0,
+  "skippedMessages": 0,
+  "sources": [
+    {
+      "username": "Dehqonobod_taksi24",
+      "title": null,
+      "resolved": false,
+      "skippedReason": "Telegram extraction timed out after 45000ms",
+      "messagesRead": 0,
+      "textMessages": 0,
+      "skippedMessages": 0
+    },
+    {
+      "username": "KamsamoltaksiN1",
+      "title": null,
+      "resolved": false,
+      "skippedReason": "Telegram extraction timed out after 45000ms",
+      "messagesRead": 0,
+      "textMessages": 0,
+      "skippedMessages": 0
+    }
+  ],
+  "keywordCount": 1000,
+  "byCategory": {
+    "PASSENGER": 500,
+    "DRIVER": 350,
+    "CARGO": 100,
+    "SPAM": 35,
+    "AMBIGUOUS": 15
+  },
+  "bySource": {
+    "history:kamsamol": 0,
+    "generated:kamsamol": 978,
+    "manual:kamsamol": 22
+  },
+  "buildStats": {
+    "historyCandidates": 0,
+    "templateAdded": 978,
+    "manualAdded": 22
+  }
+}

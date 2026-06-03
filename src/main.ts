@@ -68,8 +68,10 @@ async function validateSourceChats(client: TelegramClient): Promise<void> {
   for (const chatId of env.PASSENGER_CHAT_IDS) {
     try {
       const entity = dialogsByChatId.get(chatId) ?? (await client.getEntity(chatId));
-      validIds.push(chatId);
-      resolvedTitles.push({ id: chatId, region: getSourceRegionByPassengerChatId(chatId) ?? "UNKNOWN", title: getEntityTitle(entity) });
+      if (!validIds.includes(chatId)) {
+        validIds.push(chatId);
+        resolvedTitles.push({ id: chatId, region: getSourceRegionByPassengerChatId(chatId) ?? "UNKNOWN", title: getEntityTitle(entity) });
+      }
     } catch (error) {
       await writeWarn("Skipping invalid/unavailable passenger source chat", {
         chatId,

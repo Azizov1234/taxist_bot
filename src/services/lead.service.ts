@@ -42,7 +42,7 @@ export interface UnifiedMessageActions {
   sendToDriver: (formattedText: string, originalText: string) => Promise<DriverSendResult>;
   deleteFromSource?: () => Promise<void>;
   notifyPassenger?: (text: string) => Promise<void>;
-  notifySourceChat?: (text: string) => Promise<void>;
+  notifySourceChat?: (text: string, options?: { replyToSource?: boolean }) => Promise<void>;
 }
 
 function getSourceChatScopeForDriver(driverChatId: number | null): string[] {
@@ -62,9 +62,13 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: "taksi_kerak_driver_ad",
     pattern:
-      /\b(?:taxi|taksi|takis|taksilar|taksislar|mashina|moshina|avto)\b.{0,24}\b(?:odam|kishi|yo'?lovchi|yolovchi|yulovchi|mijoz|klient)\b.{0,24}\b(?:kerak|kere|kerede|keremas|krk)\b/iu
+      /\b(?:taxi|taksi|taxsi|takis|taksilar|taksislar|taxsilar|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\b.{0,24}\b(?:odam|kishi|yo'?lovchi|yolovchi|yulovchi|mijoz|klient)\b.{0,24}\b(?:kerak|kere|kerede|keremas|krk)\b/iu
   },
-  { id: "odam_pochta_bolsa_olamiz", pattern: /\b(?:odam|pochta|yuk)\b.{0,20}\bbo'?l(?:sa|sayam?)\b.{0,20}\b(?:olaman|olamiz)\b/iu },
+  {
+    id: "odam_pochta_bolsa_olamiz",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:odam|pochta|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:bo'?l(?:sa|sayam?)|\u0431[\u045e\u0443]\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?)|\u0431\u043e\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?))(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)(?=$|[^\p{L}\p{N}])/iu
+  },
   {
     id: "odam_pochta_olamiz_direct",
     pattern:
@@ -82,21 +86,36 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: "taksi_bor_olib_ketamz",
     pattern:
-      /\b(?:taxi|taksi)\b.{0,30}\bbor\b.{0,30}\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b(?:.{0,20}\bbo'?lsa\b)?(?:.{0,30}\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b)/iu
+      /\b(?:taxi|taksi|taxsi)\b.{0,30}\bbor\b.{0,30}\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovchi)\b(?:.{0,20}\bbo'?lsa\b)?(?:.{0,30}\b(?:olib|ob)\s*ket(?:aman|amiz|amz)\b)/iu
   },
-  { id: "taksi_bor", pattern: /\b(?:taxi|taksi)\s*bor\b/iu },
+  { id: "taksi_bor", pattern: /\b(?:taxi|taksi|taxsi)\s*bor\b/iu },
+  {
+    id: "bosh_vehicle_ad",
+    pattern:
+      /\b(?:bo'?sh|bosh)\s+(?:taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\b(?![^.!?\n]{0,18}\b(?:bormi|bori?mi|yo'?qmi|yuqmi|kerak|kere|kk|krk)\b)(?:[^.!?\n]{0,24}\bbor\b)?/iu
+  },
   { id: "joy_bor", pattern: /\b(?:\d{1,2}\s*(?:(?:ta)|(?:\u0442\u0430))?\s*)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu },
   {
     id: "joy_bor_cyrillic",
     pattern:
       /\b(?:\d{1,2}\s*(?:\u0442\u0430\s*)?)?(?:\u0431[\u045e\u0443]\u0448\s*)?(?:\u0436\u043e\u0439|\u043c\u0435\u0441\u0442[\u0430\u043e])(?:\u0438\u043c|\u0438\u043c\u0438\u0437|\u043b\u0430\u0440\u0438)?\s*\u0431\u043e\u0440\b/iu
   },
-  { id: "mashina_bor", pattern: /\b(?:mashina|mashin|moshina|moshin|avto)\s*bor\b/iu },
-  { id: "avto_model_ad", pattern: /\b(?:avto|mashina|mashin|moshina|moshin)\b.{0,12}\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  { id: "mashina_bor", pattern: /\b(?:mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\s*bor\b/iu },
+  {
+    id: "mashina_bor_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0431[\u045e\u0443\u043e]\u0448\s*)?(?:\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?)\s*\u0431\u043e\u0440(?=$|[^\p{L}\p{N}])/iu
+  },
+  { id: "avto_model_ad", pattern: /\b(?:avto|taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b.{0,12}\b(?:kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  {
+    id: "avto_model_ad_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?)(?=$|[^\p{L}\p{N}]).{0,16}(?:^|[^\p{L}\p{N}])(?:\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u043a\u043e\u0431\u0430\u043b\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f|\u043b\u0430\u0441\u0435\u0442\u0442\u0438|\u043b\u0430\u0446\u0435\u0442\u0442\u0438|\u0434\u0430\u043c\u0430\u0441|\u043c\u0430\u043b\u0438\u0431\u0443)(?=$|[^\p{L}\p{N}])/iu
+  },
   {
     id: "avto_model_with_passenger_signal",
     pattern:
-      /\b(?:kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f)\b.{0,28}\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|joy|pochta|yuk|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043f\u043e\u0447\u0442\u0430)\b/iu
+      /\b(?:kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f)\b.{0,28}\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|joy|pochta|yuk|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043f\u043e\u0447\u0442\u0430)\b/iu
   },
   { id: "private_dm_ad", pattern: /\b(?:lichka|lichkaga|lichkadan|lichku)\b/iu },
   { id: "ketadiganlar_bolsa", pattern: /\bketadiganlar?\s*bo'?lsa\b/iu },
@@ -104,10 +123,22 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "ru_passenger_take", pattern: /\b(?:РїР°СЃСЃР°Р¶РёСЂ|РјРёР¶РѕР·|Р№[СћСѓ]Р»РѕРІС‡Рё)\s*РѕР»Р°Рј(?:Р°РЅ|РёР·)\b/iu },
   { id: "ru_seat_available", pattern: /\b(?:Р±[СћСѓ]С€\s*Р¶РѕР№|Р¶РѕР№)\s*Р±РѕСЂ\b/iu }
 ];
+const CARGO_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  {
+    id: "cargo_bor",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:pochta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,20}(?:^|[^\p{L}\p{N}])(?:bor|ketadi|olib\s*borish|olib\s*ketish|\u0431\u043e\u0440|\u043a\u0435\u0442\u0430\u0434\u0438)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "route_cargo",
+    pattern:
+      /(?:dan|den|\u0434\u0430\u043d).{0,80}(?:^|[^\p{L}\p{N}])(?:pochta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}])/iu
+  }
+];
 const DRIVER_COMMERCIAL_VERB_REGEX =
-  /\b(?:olaman|olamiz|olamz|yuraman|yuramiz|yuramz|ketaman|ketamiz|ketamz|qatnayman|qatnaymiz|qatnaymz|chiqaman|chiqamiz|chiqamz|jo'?nayman|jo'?naymiz|jo'?naymz|yetkazib beraman|yetkazib beramiz|olib ketaman|olib ketamiz|olib ketamz|ob ketaman|ob ketamiz|ob ketamz)\b/iu;
+  /(?:^|[^\p{L}\p{N}])(?:olaman|olamiz|olamz|yuraman|yuramiz|yuramz|ketaman|ketamiz|ketamz|qatnayman|qatnaymiz|qatnaymz|chiqaman|chiqamiz|chiqamz|jo'?nayman|jo'?naymiz|jo'?naymz|yetkazib beraman|yetkazib beramiz|olib ketaman|olib ketamiz|olib ketamz|ob ketaman|ob ketamiz|ob ketamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437|\u044e\u0440\u0430\u043c\u0430\u043d|\u044e\u0440\u0430\u043c\u0438\u0437|\u043a\u0435\u0442\u0430\u043c\u0430\u043d|\u043a\u0435\u0442\u0430\u043c\u0438\u0437|\u049b\u0430\u0442\u043d\u0430\u0439\u043c\u0438\u0437|\u043a\u0430\u0442\u043d\u0430\u0439\u043c\u0438\u0437|\u0447\u0438\u049b\u0430\u043c\u0438\u0437|\u0447\u0438\u043a\u0430\u043c\u0438\u0437)(?=$|[^\p{L}\p{N}])/iu;
 const DRIVER_COMMERCIAL_CONTEXT_REGEX =
-  /\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|mashin|moshina|moshin|taxi|taksi|kobalt|koblt|cobalt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu;
+  /(?:^|[^\p{L}\p{N}])(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|taxi|taksi|taxsi|kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043e\u0434\u0430\u043c|\u043a\u0438\u0448\u0438|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043c\u0438\u0436\u043e\u0437|\u043a\u043b\u0438\u0435\u043d\u0442|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a|\u0436\u043e\u0439|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u043a\u043e\u0431\u0430\u043b\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f|\u043b\u0430\u0441\u0435\u0442\u0442\u0438|\u043b\u0430\u0446\u0435\u0442\u0442\u0438|\u0434\u0430\u043c\u0430\u0441|\u043c\u0430\u043b\u0438\u0431\u0443)(?=$|[^\p{L}\p{N}])/iu;
 const PRICE_QUERY_KEYWORDS_NORMALIZED = [
   "qancha",
   "qanchaga",
@@ -125,14 +156,14 @@ const PRICE_QUERY_KEYWORDS_NORMALIZED = [
 ].map((keyword) => normalizeText(keyword));
 
 const STRONG_PASSENGER_INTENT_PATTERNS: RegExp[] = [
-  /\b(?:taxi|taksi|takis|mashina|moshina)\b.{0,24}\b(?:kerak|kere|kerak edi|kere edi|bormi|bori?mi|yo'?qmi|yuqmi)\b/iu,
-  /\b(?:bormi|bori?mi|yo'?qmi|yuqmi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
-  /\b(?:kerak|kere|kerak edi|kere edi)\b.{0,24}\b(?:taxi|taksi|takis|mashina|moshina)\b/iu,
-  /\b(?:taxi|taksi|takis)\s*(?:ker|kere|kerek|kerak|krk|kera|kk)\b/iu,
-  /\b(?:kk|krk)\b.{0,10}\b(?:taxi|taksi|takis)\b/iu,
+  /\b(?:taxi|taksi|taxsi|takis|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b.{0,24}\b(?:kerak|kere|kerak edi|kere edi|bormi|bori?mi|yo'?qmi|yuqmi)\b/iu,
+  /\b(?:bormi|bori?mi|yo'?qmi|yuqmi)\b.{0,24}\b(?:taxi|taksi|taxsi|takis|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b/iu,
+  /\b(?:kerak|kere|kerak edi|kere edi)\b.{0,24}\b(?:taxi|taksi|taxsi|takis|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b/iu,
+  /\b(?:taxi|taksi|taxsi|takis)\s*(?:ker|kere|kerek|kerak|krk|kera|kk)\b/iu,
+  /\b(?:kk|krk)\b.{0,10}\b(?:taxi|taksi|taxsi|takis)\b/iu,
   /\b(?:borish kerak|ketish kerak|borishim kerak|ketishim kerak|joy bormi|poputchik bormi|olib ketadigan bormi|ob ketadigan bormi)\b/iu,
-  /\b(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu,
-  /\b(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a)\b.{0,24}\b(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b/iu,
+  /(?:^|[^\p{L}\p{N}])(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)(?=$|[^\p{L}\p{N}])/iu,
+  /(?:^|[^\p{L}\p{N}])(?:\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)(?=$|[^\p{L}\p{N}])/iu,
   /\b(?:С‚Р°РєСЃРё|РјР°С€РёРЅР°|РјРѕС€РёРЅР°)\b.{0,24}\b(?:РєРµСЂР°Рє|РєРµСЂРµ|Р±РѕСЂРјРё)\b/iu,
   /\b(?:Р±РѕСЂРёС€ РєРµСЂР°Рє|РєРµС‚РёС€ РєРµСЂР°Рє|Р№СћР»РѕРІС‡Рё Р±РѕСЂ|Р№СѓР»РѕРІС‡Рё Р±РѕСЂ)\b/iu
 ];
@@ -140,7 +171,7 @@ const PASSENGER_SOFT_SIGNAL_REGEX = /\b(?:kishi|odam|yo'?lovchi|yolovchi|yulovch
 const PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX =
   /(?:^|[^\p{L}\p{N}])(?:\u043a\u0438\u0448\u0438|\u043e\u0434\u0430\u043c|\u0439\u045e\u043b\u043e\u0432\u0447\u0438|\u0439\u0443\u043b\u043e\u0432\u0447\u0438)(?=$|[^\p{L}\p{N}])/iu;
 const TAXI_NEED_INTENT_REGEX =
-  /\b(?:taxi|taksi|takis|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)\b.{0,24}\b(?:kerak|kere|kk|krk|bormi|bori?mi|yo'?qmi|yuqmi|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)\b/iu;
+  /(?:^|[^\p{L}\p{N}])(?:taxi|taksi|taxsi|takis|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:kerak|kere|kk|krk|bormi|bori?mi|yo'?qmi|yuqmi|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0431\u043e\u0440\u043c\u0438)(?=$|[^\p{L}\p{N}])/iu;
 const CHAT_NOISE_PATTERNS: RegExp[] = [
   /^(?:ok+|xo?p|hop|bop|boldi|bo'?ldi|ha|yo'?q|bor|oldim|olindi|tushunarli|kerakmas|keremas|zakaz\s*kerakmas|zakaz\s*keremas|zaks\s*keremas)$/iu,
   /^(?:assalomu?\s*alaykum|asalomu?\s*alaykum|salom|va\s*alaykum\s*assalom|alaykum\s*assalom)$/iu,
@@ -197,6 +228,10 @@ function detectPriceQueryHits(normalizedText: string): string[] {
 
 function detectDriverAdPatternHits(text: string): string[] {
   return DRIVER_AD_REGEX_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+}
+
+function detectCargoPatternHits(text: string): string[] {
+  return CARGO_REGEX_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
 }
 
 function hasStrongPassengerIntent(text: string): boolean {
@@ -469,6 +504,7 @@ function buildDriverLeadSummary(params: {
 }
 
 function buildPassengerAckMessage(params: {
+  senderDisplayName: string;
   fromLocation: string | null;
   toLocation: string | null;
   passengerCount: number | null;
@@ -484,7 +520,7 @@ function buildPassengerAckMessage(params: {
       : "";
 
   return [
-    "✅ So'rovingiz qabul qilindi",
+    `✅ ${params.senderDisplayName}, so'rovingiz qabul qilindi`,
     "🚕 So'rovingiz taksi guruhiga muvaffaqiyatli yuborildi.",
     "━━━━━━━━━━━━━━━━━━",
     "",
@@ -497,6 +533,28 @@ function buildPassengerAckMessage(params: {
     "🙏 Tez orada siz bilan bog'lanishadi.",
     helpGroupsLine
   ].join("\n");
+}
+
+function buildSenderDisplayName(payload: UnifiedIncomingMessage): string {
+  const username = payload.senderUsername?.trim().replace(/^@/, "");
+  if (username) {
+    return `@${username}`;
+  }
+
+  const fullName = payload.senderFullName.replace(/\s+/g, " ").trim();
+  if (fullName && fullName.toLowerCase() !== "noma'lum") {
+    return fullName;
+  }
+
+  if (payload.senderId && !payload.senderId.startsWith("chat:")) {
+    return `ID ${payload.senderId}`;
+  }
+
+  return "Foydalanuvchi";
+}
+
+function buildSourcePassengerAckMessage(senderDisplayName: string): string {
+  return [`✅ ${senderDisplayName}, so'rovingiz qabul qilindi.`, "🚕 Taksi guruhiga yuborildi."].join("\n");
 }
 
 function parseHelpGroupLinks(raw: string | null): string[] {
@@ -594,25 +652,27 @@ function buildDriverPremiumPricingBlock(): string[] {
   ];
 }
 
-function buildDriverAdMembershipRequiredSourceMessage(): string {
-  return [
-    "🚫 Haydovchi e'loni Drivers kanaliga yuborilmadi.",
-    "Bu turdagi xabar uchun pullik Drivers guruh a'zoligi talab qilinadi.",
-    buildDriverPremiumJoinLine(),
-    "",
-    ...buildDriverPremiumPricingBlock()
-  ].join("\n");
-}
+function buildDriverAdMembershipRequiredPrivateMessage(senderDisplayName?: string): string {
+  const greeting = senderDisplayName
+    ? `🚫 ${senderDisplayName}, haydovchi e'loningiz qabul qilinmadi.`
+    : "🚫 Haydovchi e'loningiz qabul qilinmadi.";
 
-function buildDriverAdMembershipRequiredPrivateMessage(): string {
   return [
-    "🚫 Haydovchi e'loningiz qabul qilinmadi.",
+    greeting,
     "Siz pullik Drivers guruhida emassiz.",
     buildDriverPremiumJoinLine(),
     "",
     ...buildDriverPremiumPricingBlock(),
     "",
     "Lichkaga yozing. A'zo bo'lgach, haydovchi e'lonlari guruhda qoladi."
+  ].join("\n");
+}
+
+function buildSourceDriverAdWarningMessage(senderDisplayName: string): string {
+  return [
+    `🚫 ${senderDisplayName}, haydovchi e'loningiz qabul qilinmadi.`,
+    `Passenger guruhiga haydovchi reklama yoki "joy bor" xabarini yozish mumkin emas.`,
+    buildDriverPremiumJoinLine()
   ].join("\n");
 }
 
@@ -839,6 +899,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const keywordResult = keywordClassify(originalText);
   const driverAdHits = detectDriverAdHits(classification.normalizedText);
   const driverAdPatternHits = detectDriverAdPatternHits(originalText);
+  const cargoPatternHits = detectCargoPatternHits(originalText);
   const priceQueryHits = detectPriceQueryHits(classification.normalizedText);
   const spamByRules = hasSpamSignals(originalText);
 
@@ -867,7 +928,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const hasExplicitDriverAdSignal = driverAdHits.length > 0 || driverAdPatternHits.length > 0;
   const isDriverAd = hasExplicitDriverAdSignal || looksLikeDriverCommercial || (categoryIsDriver && hasExplicitDriverAdSignal);
   const isSpam = categoryIsSpam || classification.isSpam || spamByRules;
-  const isCargo = categoryIsCargo;
+  const isCargo = categoryIsCargo || cargoPatternHits.length > 0;
   const isRouteFareInquiry = Boolean(routeFromRules) && priceQueryHits.length > 0;
   const isAmbiguousRouteOnly = isAmbiguousRouteOnlyMessage(classification.normalizedText);
   const hasRouteDetails = Boolean(routeFromRules) || Boolean(fromLocation) || Boolean(toLocation);
@@ -880,6 +941,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const isSourceAdmin = payload.isSourceAdmin === true;
   const isDriverChatMember = payload.isDriverChatMember === true;
   const isProtectedFromDeletion = isSourceAdmin || isDriverChatMember;
+  const senderDisplayName = buildSenderDisplayName(payload);
   const hasHardPassengerSignal = keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules);
   const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText) || PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX.test(originalText);
   const hasTaxiNeedIntent = TAXI_NEED_INTENT_REGEX.test(originalText);
@@ -961,6 +1023,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     !isAmbiguousRouteOnly &&
     !isMetaInstructionMessage &&
     !isDriverAd &&
+    !isCargo &&
     !isSpam;
 
   await writeInfo("Message classification", {
@@ -973,6 +1036,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     keywordScore: keywordResult.score,
     driverAdHits,
     driverAdPatternHits,
+    cargoPatternHits,
     isDriverAd,
     isSpam,
     isCargo,
@@ -1067,36 +1131,45 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       errorMessage: ignoreReason
     });
 
-    if (isDriverAd && !payload.isStartupBackfill && !isProtectedFromDeletion) {
+    const driverAdDeletedFromSource = isDriverAd ? await deleteFromSourceIfPossible(ignoreReason) : false;
+    const shouldWarnDriverAdSender = isDriverAd && !isDriverChatMember;
+
+    if (shouldWarnDriverAdSender && !payload.isStartupBackfill) {
       if (actions.notifySourceChat) {
         try {
-          await actions.notifySourceChat(buildDriverAdMembershipRequiredSourceMessage());
+          await actions.notifySourceChat(buildSourceDriverAdWarningMessage(senderDisplayName), { replyToSource: !driverAdDeletedFromSource });
           await writeInfo("Driver ad source warning sent", {
             sourceChatId: payload.sourceChatId,
-            sourceMessageId: payload.sourceMessageId
+            sourceMessageId: payload.sourceMessageId,
+            senderId: payload.senderId,
+            senderDisplayName
           });
-        } catch (driverAdWarnError) {
+        } catch (driverAdSourceWarnError) {
           await writeWarn("Failed to send driver ad source warning", {
             sourceChatId: payload.sourceChatId,
             sourceMessageId: payload.sourceMessageId,
-            error: driverAdWarnError instanceof Error ? driverAdWarnError.message : String(driverAdWarnError)
+            senderId: payload.senderId,
+            senderDisplayName,
+            error: driverAdSourceWarnError instanceof Error ? driverAdSourceWarnError.message : String(driverAdSourceWarnError)
           });
         }
       }
 
-      if (actions.notifySourceChat && actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
+      if (actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
         try {
-          await actions.notifyPassenger(buildDriverAdMembershipRequiredPrivateMessage());
+          await actions.notifyPassenger(buildDriverAdMembershipRequiredPrivateMessage(senderDisplayName));
           await writeInfo("Driver ad private warning sent", {
             sourceChatId: payload.sourceChatId,
             sourceMessageId: payload.sourceMessageId,
-            senderId: payload.senderId
+            senderId: payload.senderId,
+            senderDisplayName
           });
         } catch (driverAdPrivateWarnError) {
           await writeWarn("Failed to send driver ad private warning", {
             sourceChatId: payload.sourceChatId,
             sourceMessageId: payload.sourceMessageId,
             senderId: payload.senderId,
+            senderDisplayName,
             error: driverAdPrivateWarnError instanceof Error ? driverAdPrivateWarnError.message : String(driverAdPrivateWarnError)
           });
         }
@@ -1138,20 +1211,20 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     }
 
     const shouldDeleteIgnoredMessage =
+      !isDriverAd &&
       !isProtectedFromDeletion &&
-      (isDriverAd ||
-        isCargo ||
-        isSpam ||
-        isMetaInstructionMessage ||
-        (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
-          taxiRelatedCandidateMessage &&
-          (isAmbiguousRouteOnly ||
-            shouldSendSourceFormatHint ||
-            chatNoiseMessage ||
-            phoneDropMessage ||
-            commercialAdNoiseMessage ||
-            !hasHardPassengerSignal ||
-            !hasMinimumLeadDetails)));
+        (isCargo ||
+          isSpam ||
+          isMetaInstructionMessage ||
+          (env.DELETE_IGNORED_MESSAGE_IF_ADMIN &&
+            taxiRelatedCandidateMessage &&
+            (isAmbiguousRouteOnly ||
+              shouldSendSourceFormatHint ||
+              chatNoiseMessage ||
+              phoneDropMessage ||
+              commercialAdNoiseMessage ||
+              !hasHardPassengerSignal ||
+              !hasMinimumLeadDetails)));
 
     if (shouldDeleteIgnoredMessage) {
       await deleteFromSourceIfPossible(ignoreReason);
@@ -1224,6 +1297,43 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       driverMessageId
     });
 
+    let sourceDeletedFromSource = false;
+    let sourceDeleteReason: string | undefined;
+
+    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource) {
+      try {
+        await actions.deleteFromSource();
+        sourceDeletedFromSource = true;
+
+        await updateLeadStatus({
+          leadId: createdLead.id,
+          status: LeadStatus.DELETED_FROM_SOURCE,
+          driverMessageId
+        });
+      } catch (deleteError) {
+        sourceDeleteReason = "Sent but source delete not permitted";
+        await writeWarn("Failed to delete source message", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+        });
+
+        await updateLeadStatus({
+          leadId: createdLead.id,
+          status: LeadStatus.NOT_DELETED_NO_PERMISSION,
+          driverMessageId,
+          errorMessage: deleteError instanceof Error ? deleteError.message : String(deleteError)
+        });
+      }
+    } else if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN) {
+      sourceDeleteReason = "Sent but source delete unavailable";
+      await writeInfo("Source message delete skipped (no delete capability)", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        isStartupBackfill: payload.isStartupBackfill === true
+      });
+    }
+
     const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(phone) || Boolean(sendResult.forwardedContactVisible);
     if (
       env.SEND_PRIVATE_ACK_TO_PASSENGER &&
@@ -1232,6 +1342,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       canDriversContactPassenger
     ) {
       const passengerAck = buildPassengerAckMessage({
+        senderDisplayName,
         fromLocation,
         toLocation,
         passengerCount,
@@ -1287,50 +1398,27 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       });
     }
 
-    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource && !isProtectedFromDeletion) {
+    if (actions.notifySourceChat && !payload.isStartupBackfill) {
       try {
-        await actions.deleteFromSource();
-
-        await updateLeadStatus({
-          leadId: createdLead.id,
-          status: LeadStatus.DELETED_FROM_SOURCE,
-          driverMessageId
-        });
-
-        return { processed: true };
-      } catch (deleteError) {
-        await writeWarn("Failed to delete source message", {
+        await actions.notifySourceChat(buildSourcePassengerAckMessage(senderDisplayName), { replyToSource: !sourceDeletedFromSource });
+        await writeInfo("Passenger source ack sent", {
           sourceChatId: payload.sourceChatId,
           sourceMessageId: payload.sourceMessageId,
-          error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+          senderId: payload.senderId,
+          senderDisplayName,
+          isProtectedFromDeletion,
+          isSourceAdmin,
+          isDriverChatMember
         });
-
-        await updateLeadStatus({
-          leadId: createdLead.id,
-          status: LeadStatus.NOT_DELETED_NO_PERMISSION,
-          driverMessageId,
-          errorMessage: deleteError instanceof Error ? deleteError.message : String(deleteError)
+      } catch (sourceAckError) {
+        await writeWarn("Passenger source ack failed", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          senderId: payload.senderId,
+          senderDisplayName,
+          error: sourceAckError instanceof Error ? sourceAckError.message : String(sourceAckError)
         });
-
-        return { processed: true, reason: "Sent but source delete not permitted" };
       }
-    }
-
-    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && actions.deleteFromSource && isProtectedFromDeletion) {
-      await writeInfo("Source message kept (protected sender)", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
-        isSourceAdmin,
-        isDriverChatMember
-      });
-    }
-
-    if (env.DELETE_SOURCE_MESSAGE_IF_ADMIN && !actions.deleteFromSource && !isProtectedFromDeletion) {
-      await writeInfo("Source message delete skipped (no delete capability)", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
-        isStartupBackfill: payload.isStartupBackfill === true
-      });
     }
 
     if (!sendResult.forwardedOriginal) {
@@ -1342,7 +1430,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     }
 
     if (sendResult.forwardedOriginal) {
-      return { processed: true };
+      return sourceDeleteReason ? { processed: true, reason: sourceDeleteReason } : { processed: true };
     }
 
     return { processed: true, reason: "Sent with link fallback" };
@@ -1402,6 +1490,21 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
         ? msg.sender_chat.title
         : ctx.chat.title ?? "Noma'lum";
 
+  let isDriverChatMember = false;
+  if (ctx.from?.id) {
+    for (const candidateDriverChatId of env.DRIVER_CHAT_IDS) {
+      try {
+        const member = await ctx.api.getChatMember(candidateDriverChatId, ctx.from.id);
+        if (member.status !== "left" && member.status !== "kicked") {
+          isDriverChatMember = true;
+          break;
+        }
+      } catch {
+        // Bot may not be able to inspect every driver chat.
+      }
+    }
+  }
+
   const payload: UnifiedIncomingMessage = {
     sourceChatId: String(ctx.chat.id),
     sourceRegion,
@@ -1412,7 +1515,7 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     senderFullName,
     senderUsername: ctx.from?.username ?? null,
     isSourceAdmin: ctx.from?.id === env.ADMIN_TELEGRAM_ID,
-    isDriverChatMember: false,
+    isDriverChatMember,
     isStartupBackfill: false,
     text,
     messageDate: new Date(msg.date * 1000),
@@ -1435,12 +1538,19 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
       await ctx.api.sendMessage(ctx.from.id, textToPassenger);
     },
-    notifySourceChat: async (textToSourceChat) => {
-      await ctx.api.sendMessage(ctx.chat!.id, textToSourceChat, {
-        reply_parameters: {
-          message_id: msg.message_id
-        }
-      } as any);
+    notifySourceChat: async (textToSourceChat, options) => {
+      const replyToSource = options?.replyToSource ?? true;
+      await ctx.api.sendMessage(
+        ctx.chat!.id,
+        textToSourceChat,
+        replyToSource
+          ? ({
+              reply_parameters: {
+                message_id: msg.message_id
+              }
+            } as any)
+          : undefined
+      );
     },
     deleteFromSource: async () => {
       await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);

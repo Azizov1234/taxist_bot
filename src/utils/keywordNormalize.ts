@@ -1,22 +1,32 @@
-const APOSTROPHE_VARIANTS_REGEX = /[`´‘’ʻʼʹʽʾʿ＇]/gu;
+const APOSTROPHE_VARIANTS_REGEX = /[`'\u00b4\u2018\u2019\u02bb\u02bc\u02ca\u02cb\u02f4\uff07]/gu;
+const EMOJI_REGEX = /[\p{Extended_Pictographic}\u200d\ufe0f]/gu;
+const LINK_REGEX = /\b(?:https?:\/\/|www\.|t\.me\/|telegram\.me\/)\S+/giu;
+const USERNAME_REGEX = /@[a-zA-Z][a-zA-Z0-9_]{4,31}\b/gu;
+const PHONE_REGEX = /(?:\+?\d[\d\s().-]{7,}\d)/gu;
 
-function collapseOverstretchedLatin(word: string): string {
-  return word
-    .replace(/([a-z])\1{1,}/gu, "$1")
+function collapseOverstretchedLatin(value: string): string {
+  return value
     .replace(/\btaxii+\b/gu, "taxi")
-    .replace(/\btaksii+\b/gu, "taksi");
+    .replace(/\btaxs+i+\b/gu, "taxi")
+    .replace(/\btaxs+\b/gu, "taxi")
+    .replace(/\btaksii+\b/gu, "taksi")
+    .replace(/([a-z])\1{2,}/gu, "$1");
 }
 
 export function normalizePhrase(input: string): string {
   const normalized = input
     .normalize("NFKC")
     .toLowerCase()
+    .replace(LINK_REGEX, " link ")
+    .replace(USERNAME_REGEX, " username ")
+    .replace(PHONE_REGEX, " phone ")
+    .replace(EMOJI_REGEX, " ")
     .replace(APOSTROPHE_VARIANTS_REGEX, "'")
-    .replace(/ё/gu, "е")
-    .replace(/ў/gu, "у")
-    .replace(/қ/gu, "к")
-    .replace(/ғ/gu, "г")
-    .replace(/ҳ/gu, "х")
+    .replace(/\u0451/gu, "\u0435")
+    .replace(/\u045e/gu, "\u0443")
+    .replace(/\u0493/gu, "\u0433")
+    .replace(/\u049b/gu, "\u043a")
+    .replace(/\u04b3/gu, "\u0445")
     .replace(/o\s*'/gu, "o")
     .replace(/g\s*'/gu, "g")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
@@ -36,7 +46,7 @@ export function detectKeywordLanguage(phrase: string): "LATIN" | "CYRILLIC" | "R
   }
 
   if (hasCyrillic) {
-    if (/[эыёъ]/iu.test(normalized)) {
+    if (/[\u044d\u044b\u0451\u044a]/iu.test(normalized)) {
       return "RUSSIAN";
     }
 

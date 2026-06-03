@@ -106,30 +106,39 @@ const ALL_AI_PROVIDERS: AIProviderName[] = ["gemini", "groq", "cerebras", "openr
 const TEMPORARY_ERROR_CODES = new Set([500, 502, 503, 504]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-const SYSTEM_PROMPT = `Sen Telegram taxi guruhidagi xabarni 4 kategoriyadan biriga ajratasan:
+const SYSTEM_PROMPT = `Sen Telegram taxi guruhidagi xabarni 5 kategoriyadan biriga ajratasan:
 1) PASSENGER_LEAD
 2) DRIVER_AD
 3) POSTAL_CARGO
 4) IGNORE_SPAM
+5) AMBIGUOUS
 
 Faqat JSON qaytar. Qo'shimcha matn qaytarma.
 
 Muhim qoidalar:
 - "joy bormi?" odatda PASSENGER_LEAD.
+- "bitta joy bormi" va "2 ta joy bormi" odatda PASSENGER_LEAD.
 - "bo'sh joy bor" odatda DRIVER_AD.
+- "mashina bor", "moshina bor", "mowina bor", "taxsi bor" odatda DRIVER_AD.
+- "bo'sh taxi bor", "bosh taxsi bor", "bosh moshin" odatda DRIVER_AD.
+- "бош мошин бор", "машина кобальт", "почта булса хам оламиз" odatda DRIVER_AD.
 - "1 kishi bor" odatda PASSENGER_LEAD.
+- "2 kishi bor", "2 odam bor", "yo'lovchi bor", "passajir bor" odatda PASSENGER_LEAD.
 - "2 ta joy bor" odatda DRIVER_AD.
 - "ketish kerak" PASSENGER_LEAD.
+- "kim ketadi", "kim boradi", "nechida ketadi", "narxi qancha" PASSENGER_LEAD.
 - "har kuni qatnaymiz" DRIVER_AD.
 - "murojaat uchun" odatda DRIVER_AD.
+- "reys bor" DRIVER_AD.
 - "pochta bor" POSTAL_CARGO.
 - "obuna bo'ling" IGNORE_SPAM.
+- Rule yaqin bo'lsa, eng aniq kategoriya tanla, lekin noaniq bo'lsa AMBIGUOUS.
 - Lotin, kirill, ruscha va aralash yozuvni tushun.
 - from_location/to_location topilmasa null bo'lsin.
 
 Strict JSON schema:
 {
-  "category": "PASSENGER_LEAD",
+  "category": "PASSENGER_LEAD | DRIVER_AD | POSTAL_CARGO | IGNORE_SPAM | AMBIGUOUS",
   "confidence": 0.0,
   "reason": "short reason",
   "passenger_score": 0,
@@ -163,13 +172,16 @@ const GENERIC_LOCATION_TOKENS = new Set([
 ]);
 
 const UZBEK_ENGLISH_HINTS: Array<{ pattern: RegExp; hint: string }> = [
-  { pattern: /\b(taxi|taksi|takis)\b/iu, hint: "taxi request" },
+  { pattern: /\b(taxi|taksi|taxsi|takis)\b/iu, hint: "taxi request" },
   { pattern: /\b(kerak|kere|kerek|ker|krk)\b/iu, hint: "needs a ride" },
   { pattern: /\b(hozir|tez|srochna|shoshilinch)\b/iu, hint: "urgent / now" },
   { pattern: /\b(qayerdan|qayerga|qayerda|qaerdan|qaerga)\b/iu, hint: "location question (from/to/where)" },
   { pattern: /\b(ketish|borish|ketaman|boraman)\b/iu, hint: "travel intent (go/leave)" },
   { pattern: /\b(odam|kishi)\b/iu, hint: "passenger count mentioned" },
-  { pattern: /\b(joy bor|odam olaman|mijoz olaman|yolovchi olaman)\b/iu, hint: "driver advertisement signal" }
+  {
+    pattern: /\b(joy bor|taxi bor|taksi bor|taxsi bor|bo'?sh taxi bor|bosh taxsi bor|bosh moshin|mashina bor|moshina bor|mowina bor|mawina bor|odam olaman|mijoz olaman|yolovchi olaman)\b/iu,
+    hint: "driver advertisement signal"
+  }
 ];
 
 class AIProviderHttpError extends Error {
@@ -345,7 +357,15 @@ function parseCategory(value: unknown): LeadCategory {
     return "POSTAL_CARGO";
   }
 
+  if (normalized === "CARGO") {
+    return "POSTAL_CARGO";
+  }
+
   if (normalized === "IGNORE_SPAM") {
+    return "IGNORE_SPAM";
+  }
+
+  if (normalized === "SPAM") {
     return "IGNORE_SPAM";
   }
 

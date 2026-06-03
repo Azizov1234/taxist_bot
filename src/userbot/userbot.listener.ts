@@ -29,6 +29,9 @@ interface ListenerState {
   paused: boolean;
 }
 
+const KAMSAMOL_SOURCE_USERNAME = "KamsamoltaksiN1";
+const KAMSAMOL_SOURCE_USERNAMES = [KAMSAMOL_SOURCE_USERNAME, "kamsamolikmiz"];
+const KAMSAMOL_SOURCE_ALIASES = ["kamsamol", "komsamol", "komsomol", "komosol", "камсамол", "комсомол"];
 
 function toText(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -126,6 +129,51 @@ function buildSourceMessageLink(sourceChatId: string, sourceMessageId: number, s
   }
 
   return `https://t.me/c/${internalId}/${sourceMessageId}`;
+}
+
+function normalizeSourceIdentity(value: string | null | undefined): string {
+  return toText(value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}_\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isKamsamolSource(payload: UnifiedIncomingMessage): boolean {
+  const username = normalizeSourceIdentity(payload.sourceChatUsername);
+  if (KAMSAMOL_SOURCE_USERNAMES.some((sourceUsername) => username === sourceUsername.toLowerCase())) {
+    return true;
+  }
+
+  const title = normalizeSourceIdentity(payload.sourceChatTitle);
+  return payload.sourceRegion === "KOMSOMOL" && KAMSAMOL_SOURCE_ALIASES.some((alias) => title.includes(alias));
+}
+
+function getSourceUsernameForLink(payload: UnifiedIncomingMessage): string | null {
+  if (payload.sourceChatUsername) {
+    return payload.sourceChatUsername;
+  }
+
+  if (isKamsamolSource(payload)) {
+    return KAMSAMOL_SOURCE_USERNAME;
+  }
+
+  return null;
+}
+
+function applyKnownSourceUsernameFallback(payload: UnifiedIncomingMessage): void {
+  if (!payload.sourceChatUsername && isKamsamolSource(payload)) {
+    payload.sourceChatUsername = KAMSAMOL_SOURCE_USERNAME;
+  }
+}
+
+function getEffectiveDriverChatIdForPayload(payload: UnifiedIncomingMessage, defaultDriverChatId: number): number {
+  if (isKamsamolSource(payload) && env.DRIVER_CHAT_ID_KOMSOMOL !== null) {
+    return env.DRIVER_CHAT_ID_KOMSOMOL;
+  }
+
+  return defaultDriverChatId;
 }
 
 function canDeleteMessagesInChat(entity: any): boolean {
@@ -227,8 +275,10 @@ async function probeSourceChats(client: TelegramClient): Promise<string> {
   lines.push(`Configured source chats: ${env.PASSENGER_CHAT_IDS.join(", ")}`);
   lines.push(`TASHKENT passengers: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`);
   lines.push(`GULISTON passengers: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`);
+  lines.push(`KOMSOMOL passengers: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`);
   lines.push(`TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`);
   lines.push(`GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`);
+  lines.push(`KOMSOMOL driver: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`);
 
   for (const chatId of env.PASSENGER_CHAT_IDS) {
     try {
@@ -336,8 +386,10 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
         `Source chatlar: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
         `TASHKENT passenger: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
         `GULISTON passenger: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
+        `KOMSOMOL passenger: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`,
         `TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
         `GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
+        `KOMSOMOL driver: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`,
         `Pauza: ${state.paused ? "ha" : "yo'q"}`
       ].join("\n")
     );
@@ -817,12 +869,13 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       return { isSourceAdmin: false, isDriverChatMember: false };
     }
 
-    if (env.ADMIN_TELEGRAM_ID && senderUserId === env.ADMIN_TELEGRAM_ID) {
-      return { isSourceAdmin: true, isDriverChatMember: false };
-    }
-
     const sourceAdminCacheKey = `${sourceChatIdNumber}:${senderUserId}`;
     let isSourceAdmin = sourceAdminByChatAndUser.get(sourceAdminCacheKey);
+    if (env.ADMIN_TELEGRAM_ID && senderUserId === env.ADMIN_TELEGRAM_ID) {
+      isSourceAdmin = true;
+      sourceAdminByChatAndUser.set(sourceAdminCacheKey, true);
+    }
+
     if (isSourceAdmin === undefined) {
       try {
         const participantResult = await client.invoke(
@@ -839,35 +892,51 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       sourceAdminByChatAndUser.set(sourceAdminCacheKey, isSourceAdmin);
     }
 
-    const driverMembershipCacheKey = `${driverChatId}:${senderUserId}`;
-    let isDriverChatMember = driverMembershipByChatAndUser.get(driverMembershipCacheKey);
-    if (isDriverChatMember === undefined) {
-      try {
-        const participantResult = await client.invoke(
-          new Api.channels.GetParticipant({
-            channel: driverChatId,
-            participant: senderUserId
-          })
-        );
-        const participant = participantResult.participant;
-        isDriverChatMember = !(participant instanceof Api.ChannelParticipantLeft || participant instanceof Api.ChannelParticipantBanned);
-      } catch {
-        isDriverChatMember = false;
+    let isDriverChatMember = false;
+    const driverChatIdsToCheck = [...new Set([driverChatId, ...env.DRIVER_CHAT_IDS])];
+    for (const candidateDriverChatId of driverChatIdsToCheck) {
+      const driverMembershipCacheKey = `${candidateDriverChatId}:${senderUserId}`;
+      let isMemberInCandidate = driverMembershipByChatAndUser.get(driverMembershipCacheKey);
+      if (isMemberInCandidate === undefined) {
+        try {
+          const participantResult = await client.invoke(
+            new Api.channels.GetParticipant({
+              channel: candidateDriverChatId,
+              participant: senderUserId
+            })
+          );
+          const participant = participantResult.participant;
+          isMemberInCandidate = !(participant instanceof Api.ChannelParticipantLeft || participant instanceof Api.ChannelParticipantBanned);
+        } catch {
+          isMemberInCandidate = false;
+        }
+        driverMembershipByChatAndUser.set(driverMembershipCacheKey, isMemberInCandidate);
       }
-      driverMembershipByChatAndUser.set(driverMembershipCacheKey, isDriverChatMember);
+
+      if (isMemberInCandidate) {
+        isDriverChatMember = true;
+        break;
+      }
     }
 
     return { isSourceAdmin, isDriverChatMember };
   };
 
-  const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage, driverChatId: number): Promise<void> => {
-    const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, payload.sourceChatUsername);
+  const sendSourceLinkFallback = async (payload: UnifiedIncomingMessage, driverChatId: number, originalText: string): Promise<void> => {
+    const fallbackDriverChatId = getEffectiveDriverChatIdForPayload(payload, driverChatId);
+    const sourceMessageLink = buildSourceMessageLink(payload.sourceChatId, payload.sourceMessageId, getSourceUsernameForLink(payload));
     if (sourceMessageLink) {
       try {
         await runThrottledTelegramWrite("send_source_link_fallback", async () =>
-          withDriverPeerRetry("send_source_link_fallback", driverChatId, async (driverInputPeer) =>
+          withDriverPeerRetry("send_source_link_fallback", fallbackDriverChatId, async (driverInputPeer) =>
             client.sendMessage(driverInputPeer, {
-              message: sourceMessageLink
+              message: [
+                "Forward qilib bo'lmadi, original xabar linki:",
+                sourceMessageLink,
+                "",
+                "Xabar:",
+                originalText.slice(0, 2500)
+              ].join("\n")
             })
           )
         );
@@ -875,6 +944,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         await writeWarn("Failed to send source link fallback to driver chat", {
           sourceChatId: payload.sourceChatId,
           sourceMessageId: payload.sourceMessageId,
+          driverChatId: fallbackDriverChatId,
           error: linkSendError instanceof Error ? linkSendError.message : String(linkSendError)
         });
       }
@@ -928,7 +998,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
             error: forwardError instanceof Error ? forwardError.message : String(forwardError)
           });
 
-          await sendSourceLinkFallback(payload, driverChatId);
+          await sendSourceLinkFallback(payload, driverChatId, _originalText);
         }
 
         return {
@@ -955,16 +1025,15 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       }
     };
 
-    if (canDeleteFromSource) {
-      actions.notifySourceChat = async (textToSourceChat) => {
-        await runThrottledTelegramWrite("notify_source_chat", async () =>
-          client.sendMessage(sourceChatIdNumber, {
-            message: textToSourceChat,
-            replyTo: payload.sourceMessageId
-          })
-        );
-      };
-    }
+    actions.notifySourceChat = async (textToSourceChat, options) => {
+      const replyToSource = options?.replyToSource ?? true;
+      await runThrottledTelegramWrite("notify_source_chat", async () =>
+        client.sendMessage(sourceChatIdNumber, {
+          message: textToSourceChat,
+          ...(replyToSource ? { replyTo: payload.sourceMessageId } : {})
+        })
+      );
+    };
 
     if (canDeleteFromSource) {
       actions.deleteFromSource = async () => {
@@ -1001,8 +1070,9 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       if (!built) {
         return { scanned: true, leadResult: null };
       }
+      applyKnownSourceUsernameFallback(built.payload);
 
-      const effectiveDriverChatId = driverChatId;
+      const effectiveDriverChatId = getEffectiveDriverChatIdForPayload(built.payload, driverChatId);
       const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, built.payload.senderId);
       built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
       built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
@@ -1272,6 +1342,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       if (sourceChatIdNumber === null) {
         return;
       }
+      applyKnownSourceUsernameFallback(payload);
 
       const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
       if (driverChatId === null) {
@@ -1281,7 +1352,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         });
         return;
       }
-      const effectiveDriverChatId = driverChatId;
+      const effectiveDriverChatId = getEffectiveDriverChatIdForPayload(payload, driverChatId);
 
       markSeenSourceMessageId(sourceChatIdNumber, payload.sourceMessageId);
 
