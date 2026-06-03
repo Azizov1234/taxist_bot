@@ -17,9 +17,6 @@
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:keywords": "tsx prisma/seed-keywords.ts",
-    "extract:kamsamol": "tsx scripts/extract-kamsamol-keywords.ts",
-    "seed:kamsamol": "tsx prisma/seed-kamsamol-keywords.ts",
-    "keyword:kamsamol:stats": "tsx scripts/kamsamol-keyword-stats.ts",
     "seed:dk:v2": "tsx prisma/seed-dehqonobod-kamsamol-v2.ts",
     "keyword:v2:stats": "tsx scripts/keyword-v2-stats.ts",
     "get:ids": "tsx scripts/get-ids.ts"

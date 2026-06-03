@@ -140,12 +140,7 @@ const envSchema = z.object({
   LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
-  DUPLICATE_WINDOW_MINUTES: optionalNumberSchema,
-  KEYWORD_SOURCE_CHAT_USERNAMES: optionalStringSchema,
-  KEYWORD_EXTRACT_LIMIT: optionalNumberSchema,
-  KEYWORD_EXTRACT_BATCH_SIZE: optionalNumberSchema,
-  KEYWORD_MIN_FREQUENCY: optionalNumberSchema,
-  KEYWORD_SAVE_EXAMPLES: optionalBooleanSchema
+  DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -302,9 +297,6 @@ const telegramStartupConnectRetryMs = parsed.data.TELEGRAM_STARTUP_CONNECT_RETRY
 const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
 const listenerBackfillSeconds = parsed.data.LISTENER_BACKFILL_SECONDS ?? 180;
 const listenerStartupBackfillLimit = parsed.data.LISTENER_STARTUP_BACKFILL_LIMIT ?? 20;
-const keywordExtractLimit = parsed.data.KEYWORD_EXTRACT_LIMIT ?? 10_000;
-const keywordExtractBatchSize = parsed.data.KEYWORD_EXTRACT_BATCH_SIZE ?? 100;
-const keywordMinFrequency = parsed.data.KEYWORD_MIN_FREQUENCY ?? 2;
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
@@ -343,18 +335,6 @@ if (listenerBackfillSeconds < 0) {
 
 if (listenerStartupBackfillLimit < 0) {
   throw new Error("Invalid environment variables: LISTENER_STARTUP_BACKFILL_LIMIT must be 0 or greater");
-}
-
-if (keywordExtractLimit < 0) {
-  throw new Error("Invalid environment variables: KEYWORD_EXTRACT_LIMIT must be 0 or greater");
-}
-
-if (keywordExtractBatchSize <= 0) {
-  throw new Error("Invalid environment variables: KEYWORD_EXTRACT_BATCH_SIZE must be greater than 0");
-}
-
-if (keywordMinFrequency <= 0) {
-  throw new Error("Invalid environment variables: KEYWORD_MIN_FREQUENCY must be greater than 0");
 }
 
 if (providerOrder.length === 0) {
@@ -422,12 +402,7 @@ export const env = {
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
-  DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes),
-  KEYWORD_SOURCE_CHAT_USERNAMES: parsed.data.KEYWORD_SOURCE_CHAT_USERNAMES ?? "KamsamoltaksiN1,Dehqonobod_taksi24,kamsamolikmiz",
-  KEYWORD_EXTRACT_LIMIT: Math.round(keywordExtractLimit),
-  KEYWORD_EXTRACT_BATCH_SIZE: Math.round(keywordExtractBatchSize),
-  KEYWORD_MIN_FREQUENCY: Math.round(keywordMinFrequency),
-  KEYWORD_SAVE_EXAMPLES: parsed.data.KEYWORD_SAVE_EXAMPLES ?? true
+  DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)
 };
 
 export function getSourceRegionByPassengerChatId(chatId: number): SourceRegion | null {

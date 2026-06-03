@@ -49,27 +49,8 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `npm run prisma:generate`
 - `npm run prisma:migrate`
 - `npm run prisma:deploy`
-- `npm run extract:kamsamol` - Kamsamol/Dehqonobod guruhlaridan masklangan keyword patternlar chiqarish
-- `npm run seed:kamsamol` - `generated/kamsamol-keywords.json` ichidagi keywordlarni `KeywordDictionary`ga upsert qilish
-- `npm run keyword:kamsamol:stats` - generated keyword count va classification checklarni ko'rish
-
-## Kamsamol/Dehqonobod keyword seeder
-`.env` ichida quyidagilar bo'lishi kerak:
-- `KEYWORD_SOURCE_CHAT_USERNAMES=KamsamoltaksiN1,Dehqonobod_taksi24,kamsamolikmiz`
-- `KEYWORD_EXTRACT_LIMIT=10000`
-- `KEYWORD_EXTRACT_BATCH_SIZE=100`
-- `KEYWORD_MIN_FREQUENCY=2`
-- `KEYWORD_SAVE_EXAMPLES=true`
-
-Extractor faqat `TELEGRAM_STRING_SESSION` egasi dialoglarida bor guruhlarni o'qiydi. Telefon, username va linklar generated JSONga `<PHONE>`, `<USERNAME>`, `<LINK>` ko'rinishida masklanadi.
-
-Run tartibi:
-1. `npm run extract:kamsamol`
-2. `npm run seed:kamsamol`
-3. `npm run build`
-4. `npx prisma validate`
-5. `npx prisma generate`
-6. `npm run dev`
+- `npm run seed:dk:v2` - Dehqonobod/Kamsamol V2 keywordlarni `KeywordDictionary`ga upsert qilish
+- `npm run keyword:v2:stats` - V2 keyword count va classification checklarni ko'rish
 
 ## Ishlash Rejimlari
 - Default: userbot mode (`TELEGRAM_MODE` bo'sh yoki `userbot`)
