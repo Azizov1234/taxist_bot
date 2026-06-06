@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+﻿import dotenv from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -336,9 +336,9 @@ if (driverChatId === undefined) {
   throw new Error("Invalid environment variables: DRIVER_CHAT_ID is required");
 }
 
-if (parsed.data.ADMIN_TELEGRAM_ID === undefined && !isGetIdsMode) {
-  throw new Error("Invalid environment variables: ADMIN_TELEGRAM_ID is required");
-}
+// if (parsed.data.ADMIN_TELEGRAM_ID === undefined && !isGetIdsMode) {
+//   throw new Error("Invalid environment variables: ADMIN_TELEGRAM_ID is required");
+// }
 
 const runtimeMode = parsed.data.TELEGRAM_MODE ?? "userbot";
 if (runtimeMode === "userbot" && (parsed.data.TELEGRAM_API_ID === undefined || !parsed.data.TELEGRAM_API_HASH)) {
