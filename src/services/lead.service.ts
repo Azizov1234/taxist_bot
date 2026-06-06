@@ -67,16 +67,16 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: "odam_pochta_bolsa_olamiz",
     pattern:
-      /(?:^|[^\p{L}\p{N}])(?:odam|pochta|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:bo'?l(?:sa|sayam?)|\u0431[\u045e\u0443]\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?)|\u0431\u043e\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?))(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)(?=$|[^\p{L}\p{N}])/iu
+      /(?:^|[^\p{L}\p{N}])(?:po(?:ch|c)ta|odam|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:bo'?l(?:sa|sayam?)|\u0431[\u045e\u0443]\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?)|\u0431\u043e\u043b(?:\u0441\u0430|\u0441\u0430\u044f\u043c?))(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)(?=$|[^\p{L}\p{N}])/iu
   },
   {
     id: "odam_pochta_olamiz_direct",
     pattern:
-      /\b(?:odam|pochta|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)\b.{0,24}\b(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)\b/iu
+      /\b(?:po(?:ch|c)ta|odam|yuk|\u043e\u0434\u0430\u043c|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)\b.{0,24}\b(?:olaman|olamiz|olamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437)\b/iu
   },
   {
     id: "yuramiz_odam_pochta",
-    pattern: /\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz|jo'?nayman|jo'?naymiz)\b.{0,40}\b(?:odam|pochta|yuk)\b.{0,20}\b(?:olaman|olamiz)\b/iu
+    pattern: /\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz|jo'?nayman|jo'?naymiz)\b.{0,40}\b(?:po(?:ch|c)ta|odam|yuk)\b.{0,20}\b(?:olaman|olamiz)\b/iu
   },
   {
     id: "passenger_take_cyrillic",
@@ -90,15 +90,63 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   },
   { id: "taksi_bor", pattern: /\b(?:taxi|taksi|taxsi)\s*bor\b/iu },
   {
+    id: "taksi_possessive_bor",
+    pattern:
+      /\b(?:taxi|taksi|taxsi|taxis|taksis|taxsis|takis)(?:si|sini|lari|larim|larimiz)?\s*(?:bor|mavjud)\b/iu
+  },
+  {
+    id: "taksi_any_suffix_bor",
+    pattern: /\b(?:taxi|taksi|taxsi|takis)[a-z']{0,10}\s*(?:bor|mavjud)\b/iu
+  },
+  {
+    id: "taksi_bor_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])\u0442\u0430\u043a\u0441\u0438(?:\u0441\u0438|\u043b\u0430\u0440\u0438|\u043b\u0430\u0440\u0438\u043c|\u043b\u0430\u0440\u0438\u043c\u0438\u0437)?\s*(?:\u0431\u043e\u0440|\u0435\u0441\u0442\u044c)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
     id: "bosh_vehicle_ad",
     pattern:
       /\b(?:bo'?sh|bosh)\s+(?:taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\b(?![^.!?\n]{0,18}\b(?:bormi|bori?mi|yo'?qmi|yuqmi|kerak|kere|kk|krk)\b)(?:[^.!?\n]{0,24}\bbor\b)?/iu
   },
-  { id: "joy_bor", pattern: /\b(?:\d{1,2}\s*(?:(?:ta)|(?:\u0442\u0430))?\s*)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu },
+  {
+    id: "bosh_vehicle_ad_compact",
+    pattern:
+      /\b(?:bo'?sh|bosh)\s*(?:taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\b(?![^.!?\n]{0,18}\b(?:bormi|bori?mi|yo'?qmi|yuqmi|kerak|kere|kk|krk)\b)(?:[^.!?\n]{0,24}\bbor\b)?/iu
+  },
+  {
+    id: "bosh_bor_contact_driver_ad",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:bo'?sh|bosh)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])bor(?=$|[^\p{L}\p{N}]).{0,60}(?:^|[^\p{L}\p{N}])(?:ketadigan|aloqaga|chiqilar|chiqing|tel|telefon|phone|raqam|nomer)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "bosh_bor_contact_driver_ad_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0431\u043e\u0448|\u0431[\u045e\u0443]\u0448)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])\u0431\u043e\u0440(?=$|[^\p{L}\p{N}]).{0,80}(?:^|[^\p{L}\p{N}])(?:\u043a\u0435\u0442\u0430\u0434\u0438\u0433\u0430\u043d|\u0430\u043b\u043e\u049b\u0430\u0433\u0430|\u0430\u043b\u043e\u043a\u0430\u0433\u0430|\u0447\u0438\u049b\u0438\u043b\u0430\u0440|\u0447\u0438\u043a\u0438\u043b\u0430\u0440|\u0442\u0435\u043b|\u0442\u0435\u043b\u0435\u0444\u043e\u043d|\u0440\u0430\u049b\u0430\u043c|\u0440\u0430\u043a\u0430\u043c|\u043d\u043e\u043c\u0435\u0440)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "bosh_taksi_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0431[\u045e\u0443]\u0448|\u0431\u043e\u0448)\s+\u0442\u0430\u043a\u0441\u0438(?![^.!?\n]{0,18}(?:\u0431\u043e\u0440\u043c\u0438|\u043a\u0435\u0440\u0430\u043a|\u043a\u0435\u0440\u0435|\u043a\u0440\u043a|\u0439[\u045e\u0443]\u049b\u043c\u0438))(?:[^.!?\n]{0,24}(?:\u0431\u043e\u0440|\u0435\u0441\u0442\u044c))?/iu
+  },
+  {
+    id: "joy_bor",
+    pattern:
+      /\b(?:(?:\d{1,2}|bir|bitta|bita)\s*(?:ta)?\s*)?(?:bo'?sh|bosh)?\s*joy(?:im|imiz|lar|lari)?\s*bor\b/iu
+  },
   {
     id: "joy_bor_cyrillic",
     pattern:
-      /\b(?:\d{1,2}\s*(?:\u0442\u0430\s*)?)?(?:\u0431[\u045e\u0443]\u0448\s*)?(?:\u0436\u043e\u0439|\u043c\u0435\u0441\u0442[\u0430\u043e])(?:\u0438\u043c|\u0438\u043c\u0438\u0437|\u043b\u0430\u0440\u0438)?\s*\u0431\u043e\u0440\b/iu
+      /(?:^|[^\p{L}\p{N}])(?:(?:\d{1,2}|\u0431\u0438\u0440|\u0431\u0438\u0442\u0442\u0430|\u0431\u0438\u0442\u0430)\s*(?:ta|\u0442\u0430)?\s*)?(?:\u0431[\u045e\u0443]\u0448\s*)?(?:\u0436\u043e\u0439|\u043c\u0435\u0441\u0442[\u0430\u043e])(?:\u0438\u043c|\u0438\u043c\u0438\u0437|\u043b\u0430\u0440\u0438)?\s*\u0431\u043e\u0440(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "numbered_seat_available",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:(?:\d{1,2}|bir|bitta|bita|ikki|uch|\u0431\u0438\u0440|\u0431\u0438\u0442\u0442\u0430|\u0438\u043a\u043a\u0438|\u0443\u0447)\s*(?:ta|\u0442\u0430)?\s*)?(?:joy|joyim|\u0436\u043e\u0439|\u0436\u043e\u0439\u0438\u043c|mesta|\u043c\u0435\u0441\u0442\u0430)\s*(?:bor|\u0431\u043e\u0440)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "cyrillic_taxi_driver_terms",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0442\u0430\u043a\u0441\u0438(?:\u0441\u0438|\u043b\u0430\u0440\u0438)?|\u0431\u043e\u0448\s*\u043c\u043e\u0448\u0438\u043d|\u0431\u043e\u0448\s*\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u0430\u0448\u0438\u043d\u0430|\u0436\u043e\u0439(?:\u0438\u043c|\u0438\u043c\u0438\u0437)?)(?=$|[^\p{L}\p{N}]).{0,28}(?:^|[^\p{L}\p{N}])(?:\u0431\u043e\u0440|\u043c\u0430\u0432\u0436\u0443\u0434)(?=$|[^\p{L}\p{N}])/iu
   },
   { id: "mashina_bor", pattern: /\b(?:mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\s*bor\b/iu },
   {
@@ -106,7 +154,12 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
     pattern:
       /(?:^|[^\p{L}\p{N}])(?:\u0431[\u045e\u0443\u043e]\u0448\s*)?(?:\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?)\s*\u0431\u043e\u0440(?=$|[^\p{L}\p{N}])/iu
   },
-  { id: "avto_model_ad", pattern: /\b(?:avto|taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b.{0,12}\b(?:kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
+  {
+    id: "conditioner_driver_ad",
+    pattern:
+      /\b(?:kan[st]aner|kandi[st]ioner|kond[ei]tsioner|kondisaner|kandisaner|condit?ioner|conditioner)\s*(?:bor|mavjud)\b|(?:^|[^\p{L}\p{N}])(?:\u043a\u0430\u043d\u0434\u0438\u0446\u0438\u043e\u043d\u0435\u0440|\u043a\u043e\u043d\u0434\u0438\u0446\u0438\u043e\u043d\u0435\u0440)\s*(?:\u0431\u043e\u0440|\u0435\u0441\u0442\u044c)(?=$|[^\p{L}\p{N}])/iu
+  },
+  { id: "avto_model_ad", pattern: /\b(?:avto|taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\b.{0,12}\b(?:kobalt|koblt|coblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu)\b/iu },
   {
     id: "avto_model_ad_cyrillic",
     pattern:
@@ -115,7 +168,7 @@ const DRIVER_AD_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: "avto_model_with_passenger_signal",
     pattern:
-      /\b(?:kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f)\b.{0,28}\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|joy|pochta|yuk|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043f\u043e\u0447\u0442\u0430)\b/iu
+      /\b(?:kobalt|koblt|coblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f)\b.{0,28}\b(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|joy|po(?:ch|c)ta|yuk|\u043e\u0434\u0430\u043c|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043f\u043e\u0447\u0442\u0430)\b/iu
   },
   { id: "private_dm_ad", pattern: /\b(?:lichka|lichkaga|lichkadan|lichku)\b/iu },
   { id: "ketadiganlar_bolsa", pattern: /\bketadiganlar?\s*bo'?lsa\b/iu },
@@ -127,18 +180,18 @@ const CARGO_REGEX_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: "cargo_bor",
     pattern:
-      /(?:^|[^\p{L}\p{N}])(?:pochta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,20}(?:^|[^\p{L}\p{N}])(?:bor|ketadi|olib\s*borish|olib\s*ketish|\u0431\u043e\u0440|\u043a\u0435\u0442\u0430\u0434\u0438)(?=$|[^\p{L}\p{N}])/iu
+      /(?:^|[^\p{L}\p{N}])(?:po(?:ch|c)ta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}]).{0,24}(?:^|[^\p{L}\p{N}])(?:bor|bosa|bo'?lsa|ketadi|olib\s*borish|olib\s*ketish|\u0431\u043e\u0440|\u043a\u0435\u0442\u0430\u0434\u0438)(?=$|[^\p{L}\p{N}])/iu
   },
   {
     id: "route_cargo",
     pattern:
-      /(?:dan|den|\u0434\u0430\u043d).{0,80}(?:^|[^\p{L}\p{N}])(?:pochta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}])/iu
+      /(?:dan|den|\u0434\u0430\u043d).{0,80}(?:^|[^\p{L}\p{N}])(?:po(?:ch|c)ta|yuk|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a)(?=$|[^\p{L}\p{N}])/iu
   }
 ];
 const DRIVER_COMMERCIAL_VERB_REGEX =
   /(?:^|[^\p{L}\p{N}])(?:olaman|olamiz|olamz|yuraman|yuramiz|yuramz|ketaman|ketamiz|ketamz|qatnayman|qatnaymiz|qatnaymz|chiqaman|chiqamiz|chiqamz|jo'?nayman|jo'?naymiz|jo'?naymz|yetkazib beraman|yetkazib beramiz|olib ketaman|olib ketamiz|olib ketamz|ob ketaman|ob ketamiz|ob ketamz|\u043e\u043b\u0430\u043c\u0430\u043d|\u043e\u043b\u0430\u043c\u0438\u0437|\u044e\u0440\u0430\u043c\u0430\u043d|\u044e\u0440\u0430\u043c\u0438\u0437|\u043a\u0435\u0442\u0430\u043c\u0430\u043d|\u043a\u0435\u0442\u0430\u043c\u0438\u0437|\u049b\u0430\u0442\u043d\u0430\u0439\u043c\u0438\u0437|\u043a\u0430\u0442\u043d\u0430\u0439\u043c\u0438\u0437|\u0447\u0438\u049b\u0430\u043c\u0438\u0437|\u0447\u0438\u043a\u0430\u043c\u0438\u0437)(?=$|[^\p{L}\p{N}])/iu;
 const DRIVER_COMMERCIAL_CONTEXT_REGEX =
-  /(?:^|[^\p{L}\p{N}])(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|pochta|yuk|joy|avto|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|taxi|taksi|taxsi|kobalt|koblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043e\u0434\u0430\u043c|\u043a\u0438\u0448\u0438|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043c\u0438\u0436\u043e\u0437|\u043a\u043b\u0438\u0435\u043d\u0442|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a|\u0436\u043e\u0439|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u043a\u043e\u0431\u0430\u043b\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f|\u043b\u0430\u0441\u0435\u0442\u0442\u0438|\u043b\u0430\u0446\u0435\u0442\u0442\u0438|\u0434\u0430\u043c\u0430\u0441|\u043c\u0430\u043b\u0438\u0431\u0443)(?=$|[^\p{L}\p{N}])/iu;
+  /(?:^|[^\p{L}\p{N}])(?:odam|yo'?lovchi|yolovchi|yulovchi|mijoz|klient|po(?:ch|c)ta|yuk|joy|avto|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|taxi|taksi|taxsi|kobalt|koblt|coblt|cobalt|cobult|cobolt|jentra|gentra|lasetti|lacetti|damas|nexia|malibu|\u043e\u0434\u0430\u043c|\u043a\u0438\u0448\u0438|\u0439[\u0443\u045e]\u043b\u043e\u0432\u0447\u0438|\u043c\u0438\u0436\u043e\u0437|\u043a\u043b\u0438\u0435\u043d\u0442|\u043f\u043e\u0447\u0442\u0430|\u044e\u043a|\u0436\u043e\u0439|\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d\u0430?|\u043c\u043e\u0448\u0438\u043d\u0430?|\u043a\u043e\u0431\u0430\u043b\u044c\u0442|\u043a\u043e\u0431\u0430\u043b\u0442|\u0434\u0436\u0435\u043d\u0442\u0440\u0430|\u0436\u0435\u043d\u0442\u0440\u0430|\u043d\u0435\u043a\u0441\u0438\u044f|\u043b\u0430\u0441\u0435\u0442\u0442\u0438|\u043b\u0430\u0446\u0435\u0442\u0442\u0438|\u0434\u0430\u043c\u0430\u0441|\u043c\u0430\u043b\u0438\u0431\u0443)(?=$|[^\p{L}\p{N}])/iu;
 const PRICE_QUERY_KEYWORDS_NORMALIZED = [
   "qancha",
   "qanchaga",
@@ -196,6 +249,55 @@ const COMMERCIAL_AD_NOISE_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "offline_store", pattern: /\b(?:manzil|apteka|do'?kon|magazin|filial)\b/iu },
   { id: "mass_reach_ad", pattern: /\b(?:telegram|instagram|youtube|kanal|obuna)\b/iu }
 ];
+const COMMERCIAL_SERVICE_SPAM_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  { id: "construction_service", pattern: /\b(?:beton|g'?isht|devor|eshik|deraza|pol|plita|teshish|kesish|montaj|remont)\b/iu },
+  { id: "service_offer", pattern: /\b(?:xizmat|xizmati|xizmatlar|ustalar|usta|yetkazib|dostavka)\b/iu },
+  { id: "regional_service_ad", pattern: /\b(?:viloyatlar|sirdaryo|chang\s*siz|changsiz)\b.{0,80}\b(?:xizmat|teshish|kesish)\b/iu },
+  { id: "group_admin_noise", pattern: /\b(?:gurpa|gruppa|guruh|gruh|group|blokdan|blok|ochaman|shart|qiyasma|qiyamsi|qiyvossan)\b/iu },
+  { id: "profanity_noise", pattern: /\b(?:naxuy|nahuy|нахуй|kot|qotoq|jalab|blya|blet|suka|sani\s+am)\b/iu }
+];
+const HARD_TAXI_DRIVER_AD_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  {
+    id: "vehicle_available_latin",
+    pattern:
+      /\b(?:taxi|taksi|taxsi|takis|taxis|taxisi|taksisi|taxsisi|taksilari|taxilari|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)[a-z']{0,8}\s*(?:bor|mavjud|tayyor)\b/iu
+  },
+  {
+    id: "vehicle_available_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0442\u0430\u043a\u0441\u0438|\u0442\u0430\u043a\u0441\u0438\u0441\u0438|\u0442\u0430\u043a\u0441\u0438\u043b\u0430\u0440\u0438|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u0430\u0448\u0438\u043d|\u043c\u043e\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d|\u0430\u0432\u0442\u043e)[\p{L}']{0,8}\s*(?:\u0431\u043e\u0440|\u043c\u0430\u0432\u0436\u0443\u0434|\u0442\u0430\u0439\u0451\u0440|\u0442\u0430\u0439\u0435\u0440|\u0435\u0441\u0442\u044c)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "empty_vehicle_available_latin",
+    pattern:
+      /\b(?:bo'?sh|bosh|bush|bow)\b.{0,24}\b(?:taxi|taksi|taxsi|takis|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)?\b.{0,24}\b(?:bor|ketadigan|aloqaga|chiqilar|chiqing|tel|telefon|raqam|nomer)\b/iu
+  },
+  {
+    id: "empty_vehicle_available_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:\u0431\u043e\u0448|\u0431[\u045e\u0443]\u0448)(?=$|[^\p{L}\p{N}]).{0,28}(?:\u0442\u0430\u043a\u0441\u0438|\u043c\u0430\u0448\u0438\u043d|\u043c\u0430\u0448\u0438\u043d\u0430|\u043c\u043e\u0448\u0438\u043d|\u043c\u043e\u0448\u0438\u043d\u0430|\u0430\u0432\u0442\u043e)?(?=$|[^\p{L}\p{N}]).{0,28}(?:\u0431\u043e\u0440|\u043a\u0435\u0442\u0430\u0434\u0438\u0433\u0430\u043d|\u0430\u043b\u043e\u049b\u0430\u0433\u0430|\u0430\u043b\u043e\u043a\u0430\u0433\u0430|\u0447\u0438\u049b\u0438\u043b\u0430\u0440|\u0447\u0438\u043a\u0438\u043b\u0430\u0440|\u0442\u0435\u043b|\u0442\u0435\u043b\u0435\u0444\u043e\u043d|\u0440\u0430\u049b\u0430\u043c|\u0440\u0430\u043a\u0430\u043c|\u043d\u043e\u043c\u0435\u0440)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "seat_available_latin",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:(?:\d{1,2}|bir|bitta|bita|ikki|uch|tort|to'?rt)\s*(?:ta)?\s*)?(?:bo'?sh|bosh|bush)?\s*(?:joy|joyim|joyimiz|mesta)\s*(?:bor|mavjud)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "seat_available_cyrillic",
+    pattern:
+      /(?:^|[^\p{L}\p{N}])(?:(?:\d{1,2}|\u0431\u0438\u0440|\u0431\u0438\u0442\u0442\u0430|\u0438\u043a\u043a\u0438|\u0443\u0447|\u0442[\u045e\u0443]\u0440\u0442)\s*(?:ta|\u0442\u0430)?\s*)?(?:\u0431\u043e\u0448|\u0431[\u045e\u0443]\u0448)?\s*(?:\u0436\u043e\u0439|\u0436\u043e\u0439\u0438\u043c|\u0436\u043e\u0439\u0438\u043c\u0438\u0437|\u043c\u0435\u0441\u0442\u0430)\s*(?:\u0431\u043e\u0440|\u043c\u0430\u0432\u0436\u0443\u0434)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "conditioner_available",
+    pattern:
+      /\b(?:kan[st]aner|kandi[st]ioner|kond[ei]tsioner|kondisaner|kandisaner|condit?ioner|conditioner)\s*(?:bor|mavjud)\b|(?:^|[^\p{L}\p{N}])(?:\u043a\u0430\u043d\u0434\u0438\u0446\u0438\u043e\u043d\u0435\u0440|\u043a\u043e\u043d\u0434\u0438\u0446\u0438\u043e\u043d\u0435\u0440)\s*(?:\u0431\u043e\u0440|\u043c\u0430\u0432\u0436\u0443\u0434|\u0435\u0441\u0442\u044c)(?=$|[^\p{L}\p{N}])/iu
+  },
+  {
+    id: "driver_contact_offer",
+    pattern:
+      /\b(?:ketadigan|qatnaydigan|yuradigan)\b.{0,40}\b(?:aloqaga|chiqilar|chiqing|tel|telefon|raqam|nomer)\b|(?:^|[^\p{L}\p{N}])(?:\u043a\u0435\u0442\u0430\u0434\u0438\u0433\u0430\u043d|\u049b\u0430\u0442\u043d\u0430\u0439\u0434\u0438\u0433\u0430\u043d|\u043a\u0430\u0442\u043d\u0430\u0439\u0434\u0438\u0433\u0430\u043d|\u044e\u0440\u0430\u0434\u0438\u0433\u0430\u043d)(?=$|[^\p{L}\p{N}]).{0,50}(?:\u0430\u043b\u043e\u049b\u0430\u0433\u0430|\u0430\u043b\u043e\u043a\u0430\u0433\u0430|\u0447\u0438\u049b\u0438\u043b\u0430\u0440|\u0447\u0438\u043a\u0438\u043b\u0430\u0440|\u0442\u0435\u043b|\u0442\u0435\u043b\u0435\u0444\u043e\u043d|\u0440\u0430\u049b\u0430\u043c|\u0440\u0430\u043a\u0430\u043c|\u043d\u043e\u043c\u0435\u0440)(?=$|[^\p{L}\p{N}])/iu
+  }
+];
 
 const META_INSTRUCTION_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "nickname_or_username", pattern: /\b(?:nick\s*name|nickname|nikname|username)\b/iu },
@@ -218,6 +320,17 @@ function containsKeyword(normalizedText: string, normalizedKeyword: string): boo
   return boundaryPattern.test(normalizedText);
 }
 
+function patternMatches(pattern: RegExp, text: string): boolean {
+  pattern.lastIndex = 0;
+  return pattern.test(text);
+}
+
+function collectPatternHits(entries: Array<{ id: string; pattern: RegExp }>, text: string, normalizedText?: string): string[] {
+  return entries
+    .filter((entry) => patternMatches(entry.pattern, text) || (normalizedText !== undefined && patternMatches(entry.pattern, normalizedText)))
+    .map((entry) => entry.id);
+}
+
 function detectDriverAdHits(normalizedText: string): string[] {
   return DRIVER_AD_KEYWORDS_NORMALIZED.filter((keyword) => keyword.length > 0 && containsKeyword(normalizedText, keyword));
 }
@@ -226,24 +339,95 @@ function detectPriceQueryHits(normalizedText: string): string[] {
   return PRICE_QUERY_KEYWORDS_NORMALIZED.filter((keyword) => keyword.length > 0 && containsKeyword(normalizedText, keyword));
 }
 
-function detectDriverAdPatternHits(text: string): string[] {
-  return DRIVER_AD_REGEX_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+function detectDriverAdPatternHits(text: string, normalizedText: string): string[] {
+  return collectPatternHits(DRIVER_AD_REGEX_PATTERNS, text, normalizedText);
 }
 
-function detectCargoPatternHits(text: string): string[] {
-  return CARGO_REGEX_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+function detectCargoPatternHits(text: string, normalizedText: string): string[] {
+  return collectPatternHits(CARGO_REGEX_PATTERNS, text, normalizedText);
 }
 
 function hasStrongPassengerIntent(text: string): boolean {
   return STRONG_PASSENGER_INTENT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-function detectMetaInstructionHits(text: string): string[] {
-  return META_INSTRUCTION_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+function detectMetaInstructionHits(text: string, normalizedText: string): string[] {
+  return collectPatternHits(META_INSTRUCTION_PATTERNS, text, normalizedText);
 }
 
-function detectCommercialAdNoiseHits(text: string): string[] {
-  return COMMERCIAL_AD_NOISE_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.id);
+function detectCommercialAdNoiseHits(text: string, normalizedText: string): string[] {
+  return collectPatternHits(COMMERCIAL_AD_NOISE_PATTERNS, text, normalizedText);
+}
+
+function detectCommercialServiceSpamHits(text: string, normalizedText: string): string[] {
+  return collectPatternHits(COMMERCIAL_SERVICE_SPAM_PATTERNS, text, normalizedText);
+}
+
+function detectHardTaxiDriverAdHits(text: string, normalizedText: string): string[] {
+  const hits = collectPatternHits(HARD_TAXI_DRIVER_AD_PATTERNS, text, normalizedText);
+  const normalized = normalizedText
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  const literalDriverPhrases = [
+    "taxisi bor",
+    "taksisi bor",
+    "taxis bor",
+    "taxsi bor",
+    "taksi bor",
+    "taxi bor",
+    "bosh bor",
+    "bosh moshin bor",
+    "boshmoshin bor",
+    "bosh mashina bor",
+    "boshmashina bor",
+    "joyim bor",
+    "joy bor",
+    "1ta joy bor",
+    "2ta joy bor",
+    "3ta joy bor",
+    "1ta joyim bor",
+    "2ta joyim bor",
+    "3ta joyim bor",
+    "\u0442\u0430\u043a\u0441\u0438 \u0431\u043e\u0440",
+    "\u0442\u0430\u043a\u0441\u0438\u0441\u0438 \u0431\u043e\u0440",
+    "\u0431\u043e\u0448 \u0431\u043e\u0440",
+    "\u0431\u045e\u0448 \u0431\u043e\u0440",
+    "\u0431\u0443\u0448 \u0431\u043e\u0440",
+    "\u0431\u043e\u0448 \u043c\u043e\u0448\u0438\u043d \u0431\u043e\u0440",
+    "\u0431\u043e\u0448\u043c\u043e\u0448\u0438\u043d \u0431\u043e\u0440",
+    "\u0436\u043e\u0439 \u0431\u043e\u0440",
+    "\u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "\u0431\u0438\u0442\u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "\u0431\u0438\u0442\u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "1 \u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "2 \u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "3 \u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "1 \u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "2 \u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "3 \u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "1\u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "2\u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "3\u0442\u0430 \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "1\u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "2\u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "3\u0442\u0430 \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "1ta \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "2ta \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "3ta \u0436\u043e\u0439 \u0431\u043e\u0440",
+    "1ta \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "2ta \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440",
+    "3ta \u0436\u043e\u0439\u0438\u043c \u0431\u043e\u0440"
+  ];
+
+  for (const phrase of literalDriverPhrases) {
+    if (normalized.includes(phrase)) {
+      hits.push(`literal:${phrase}`);
+    }
+  }
+
+  return [...new Set(hits)];
 }
 
 function isChatNoiseMessage(originalText: string, normalizedText: string): boolean {
@@ -898,14 +1082,16 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const classification = await classifyMessage(originalText);
   const keywordResult = keywordClassify(originalText);
   const driverAdHits = detectDriverAdHits(classification.normalizedText);
-  const driverAdPatternHits = detectDriverAdPatternHits(originalText);
-  const cargoPatternHits = detectCargoPatternHits(originalText);
+  const driverAdPatternHits = detectDriverAdPatternHits(originalText, classification.normalizedText);
+  const hardTaxiDriverAdHits = detectHardTaxiDriverAdHits(originalText, classification.normalizedText);
+  const cargoPatternHits = detectCargoPatternHits(originalText, classification.normalizedText);
   const priceQueryHits = detectPriceQueryHits(classification.normalizedText);
   const spamByRules = hasSpamSignals(originalText);
+  const commercialServiceSpamHits = detectCommercialServiceSpamHits(originalText, classification.normalizedText);
 
   const routeFromRules = detectRoute(originalText);
   const strongPassengerIntent = hasStrongPassengerIntent(originalText);
-  const metaInstructionHits = detectMetaInstructionHits(originalText);
+  const metaInstructionHits = detectMetaInstructionHits(originalText, classification.normalizedText);
   const routeParts = extractRouteParts(routeFromRules);
   const phoneFromRules = extractPhone(originalText);
   const passengerCountFromRules = extractPassengerCount(originalText);
@@ -925,9 +1111,9 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const categoryIsDriver = classification.category === "DRIVER_AD";
   const categoryIsCargo = classification.category === "POSTAL_CARGO";
   const categoryIsSpam = classification.category === "IGNORE_SPAM";
-  const hasExplicitDriverAdSignal = driverAdHits.length > 0 || driverAdPatternHits.length > 0;
+  const hasExplicitDriverAdSignal = driverAdHits.length > 0 || driverAdPatternHits.length > 0 || hardTaxiDriverAdHits.length > 0;
   const isDriverAd = hasExplicitDriverAdSignal || looksLikeDriverCommercial || (categoryIsDriver && hasExplicitDriverAdSignal);
-  const isSpam = categoryIsSpam || classification.isSpam || spamByRules;
+  const isSpam = categoryIsSpam || classification.isSpam || spamByRules || commercialServiceSpamHits.length > 0;
   const isCargo = categoryIsCargo || cargoPatternHits.length > 0;
   const isRouteFareInquiry = Boolean(routeFromRules) && priceQueryHits.length > 0;
   const isAmbiguousRouteOnly = isAmbiguousRouteOnlyMessage(classification.normalizedText);
@@ -942,12 +1128,13 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   const isDriverChatMember = payload.isDriverChatMember === true;
   const isProtectedFromDeletion = isSourceAdmin || isDriverChatMember;
   const senderDisplayName = buildSenderDisplayName(payload);
-  const hasHardPassengerSignal = keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules);
+  const hasHardPassengerSignal =
+    !hasExplicitDriverAdSignal && (keywordResult.score >= 2 || strongPassengerIntent || Boolean(phone) || Boolean(routeFromRules));
   const hasPassengerSoftSignal = PASSENGER_SOFT_SIGNAL_REGEX.test(originalText) || PASSENGER_SOFT_SIGNAL_CYRILLIC_REGEX.test(originalText);
   const hasTaxiNeedIntent = TAXI_NEED_INTENT_REGEX.test(originalText);
   const chatNoiseMessage = isChatNoiseMessage(originalText, classification.normalizedText);
   const phoneDropMessage = isPhoneDropMessage(originalText, phone);
-  const commercialAdNoiseHits = detectCommercialAdNoiseHits(originalText);
+  const commercialAdNoiseHits = detectCommercialAdNoiseHits(originalText, classification.normalizedText);
   const commercialAdNoiseMessage = commercialAdNoiseHits.length > 0 && !hasHardPassengerSignal && !hasRouteDetails;
   const taxiRelatedCandidateMessage =
     categoryIsPassenger ||
@@ -1036,7 +1223,9 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     keywordScore: keywordResult.score,
     driverAdHits,
     driverAdPatternHits,
+    hardTaxiDriverAdHits,
     cargoPatternHits,
+    commercialServiceSpamHits,
     isDriverAd,
     isSpam,
     isCargo,

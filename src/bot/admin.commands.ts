@@ -171,7 +171,8 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         `PASSENGER_CHAT_IDS_KOMSOMOL: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`,
         `DRIVER_CHAT_ID_TASHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
         `DRIVER_CHAT_ID_GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
-        `DRIVER_CHAT_ID_KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`
+        `DRIVER_CHAT_ID_KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`,
+        `DRIVER_DELIVERY_MODE: ${env.DRIVER_DELIVERY_MODE} (requested: ${env.DRIVER_DELIVERY_REQUESTED_MODE})`
       ].join("\n")
     );
   });

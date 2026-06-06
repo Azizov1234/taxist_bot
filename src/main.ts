@@ -194,7 +194,9 @@ async function startUserbotMode(): Promise<void> {
       username: (me as any).username ?? null,
       sourceChatIds: env.PASSENGER_CHAT_IDS,
       passengerByRegion: env.PASSENGER_CHAT_IDS_BY_REGION,
-      driverByRegion: env.DRIVER_CHAT_ID_BY_REGION
+      driverByRegion: env.DRIVER_CHAT_ID_BY_REGION,
+      driverDeliveryMode: env.DRIVER_DELIVERY_MODE,
+      driverDeliveryRequestedMode: env.DRIVER_DELIVERY_REQUESTED_MODE
     });
 
     const shutdown = async (signal: string): Promise<void> => {

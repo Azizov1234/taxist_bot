@@ -3,7 +3,16 @@ import { getPeerId } from "telegram/Utils.js";
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
 import { LeadStatus } from "@prisma/client";
-import { env, getDriverChatIdBySourceChatId, getSourceRegionByPassengerChatId, isDriverChatId, type SourceRegion } from "../config/env.js";
+import {
+  env,
+  getDriverChatIdBySourceChatId,
+  getSourceRegionByPassengerChatId,
+  getSourceRegionByPassengerChatUsername,
+  isDriverChatId,
+  normalizeTelegramChatUsername,
+  registerResolvedPassengerChat,
+  type SourceRegion
+} from "../config/env.js";
 import { prisma } from "../prisma/client.js";
 import { classifyMessage, getProviderStatusSnapshot } from "../services/leadClassifier.service.js";
 import {
@@ -23,13 +32,17 @@ import {
   type UnifiedIncomingMessage,
   type UnifiedMessageActions
 } from "../services/lead.service.js";
+import { sendDriverLeadViaBotBridge } from "../services/driverDelivery.service.js";
 import { writeError, writeInfo, writeWarn } from "../services/logger.service.js";
+import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
 
 interface ListenerState {
   paused: boolean;
 }
 
 const KAMSAMOL_SOURCE_USERNAME = "KamsamoltaksiN1";
+const ADMIN_COMMAND_HELP_TEXT =
+  "Mavjud commandlar: .help, .status, .stats, .test <text>, .sources, .source_probe, .pause, .resume, .last <n>, .keywords <category>, .keyword_count, .add_keyword <category> \"phrase\" <weight>, .reload_keywords";
 const KAMSAMOL_SOURCE_USERNAMES = [KAMSAMOL_SOURCE_USERNAME, "kamsamolikmiz"];
 const KAMSAMOL_SOURCE_ALIASES = ["kamsamol", "komsamol", "komsomol", "komosol", "камсамол", "комсомол"];
 
@@ -92,6 +105,10 @@ function formatEntityName(entity: any): string {
   }
 
   return "";
+}
+
+function getEntityUsername(entity: any): string | null {
+  return normalizeTelegramChatUsername(toText(entity?.username || entity?.usernames?.[0]?.username));
 }
 
 function getMessageDate(rawDate: unknown): Date {
@@ -259,7 +276,54 @@ function isInputEntityResolveError(error: unknown): boolean {
   );
 }
 
+async function resolveBotApiChatId(event: NewMessageEvent): Promise<number | null> {
+  const peerId = event.message.peerId;
+  if (peerId) {
+    const peerNumber = toNumberId(getPeerId(peerId, true));
+    if (peerNumber !== null) {
+      return peerNumber;
+    }
+  }
+
+  const chat = await event.getChat().catch(() => null);
+  if (!chat) {
+    return null;
+  }
+
+  try {
+    return toNumberId(getPeerId(chat, true));
+  } catch {
+    return null;
+  }
+}
+
 async function replyToEvent(client: TelegramClient, event: NewMessageEvent, text: string): Promise<void> {
+  if (env.ADMIN_COMMAND_REPLY_MODE === "off") {
+    return;
+  }
+
+  if (env.ADMIN_COMMAND_REPLY_MODE === "bot") {
+    const chatId = await resolveBotApiChatId(event);
+    if (chatId === null) {
+      await writeWarn("Admin command reply skipped: could not resolve Bot API chat id");
+      return;
+    }
+
+    try {
+      const sent = await sendTelegramBotMessage(chatId, text, { replyToMessageId: event.message.id });
+      if (!sent) {
+        await writeWarn("Admin command reply skipped: TELEGRAM_BOT_TOKEN is not configured", { chatId });
+      }
+    } catch (error) {
+      await writeWarn("Admin command reply via Bot API failed", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    return;
+  }
+
   const inputChat = await event.getInputChat();
   if (!inputChat) {
     return;
@@ -276,6 +340,9 @@ async function probeSourceChats(client: TelegramClient): Promise<string> {
   lines.push(`TASHKENT passengers: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`);
   lines.push(`GULISTON passengers: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`);
   lines.push(`KOMSOMOL passengers: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`);
+  lines.push(`TASHKENT usernames: ${env.PASSENGER_CHAT_USERNAMES_TASHKENT.join(", ") || "-"}`);
+  lines.push(`GULISTON usernames: ${env.PASSENGER_CHAT_USERNAMES_GULISTON.join(", ") || "-"}`);
+  lines.push(`KOMSOMOL usernames: ${env.PASSENGER_CHAT_USERNAMES_KOMSOMOL.join(", ") || "-"}`);
   lines.push(`TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`);
   lines.push(`GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`);
   lines.push(`KOMSOMOL driver: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`);
@@ -292,6 +359,20 @@ async function probeSourceChats(client: TelegramClient): Promise<string> {
       lines.push(`OK | ${chatId} | ${sourceRegion} | ${title} | lastMessageId=${lastMessageId} | lastMessageDate=${lastMessageDate}`);
     } catch (error) {
       lines.push(`FAIL | ${chatId} | ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const usernameEntries = Object.entries(env.PASSENGER_CHAT_USERNAMES_BY_REGION) as Array<[SourceRegion, string[]]>;
+  for (const [region, usernames] of usernameEntries) {
+    for (const username of usernames) {
+      try {
+        const entity = await client.getEntity(username);
+        const chatNumber = toNumberId(getPeerId(entity, true));
+        const title = formatEntityName(entity) || username;
+        lines.push(`OK | @${username} | ${region} | ${title} | resolvedChatId=${chatNumber ?? "-"}`);
+      } catch (error) {
+        lines.push(`FAIL | @${username} | ${region} | ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -333,19 +414,26 @@ async function resolveSourceChat(
 
   const uniqueCandidateIds = [...new Set(candidateIds)];
   const matchedId = uniqueCandidateIds.find((id) => env.PASSENGER_CHAT_IDS.includes(id));
-  if (matchedId === undefined) {
-    throw new Error(`Source chat not matched. candidates=[${uniqueCandidateIds.join(", ")}]`);
+  const chatUsername = getEntityUsername(chat);
+  const usernameRegion = getSourceRegionByPassengerChatUsername(chatUsername);
+  const matchedRegion = matchedId === undefined ? usernameRegion : getSourceRegionByPassengerChatId(matchedId);
+  const sourceChatIdNumber = matchedId ?? uniqueCandidateIds[0];
+
+  if (sourceChatIdNumber === undefined || !matchedRegion) {
+    throw new Error(`Source chat not matched. candidates=[${uniqueCandidateIds.join(", ")}], username=${chatUsername ?? "-"}`);
   }
 
-  const sourceRegion = getSourceRegionByPassengerChatId(matchedId);
-  const driverChatId = getDriverChatIdBySourceChatId(matchedId);
+  registerResolvedPassengerChat(sourceChatIdNumber, matchedRegion);
+
+  const sourceRegion = getSourceRegionByPassengerChatId(sourceChatIdNumber);
+  const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
   if (!sourceRegion || driverChatId === null) {
-    throw new Error(`Source chat ${matchedId} has no region/driver mapping`);
+    throw new Error(`Source chat ${sourceChatIdNumber} has no region/driver mapping`);
   }
 
   return {
-    sourceChatId: String(matchedId),
-    sourceChatIdNumber: matchedId,
+    sourceChatId: String(sourceChatIdNumber),
+    sourceChatIdNumber,
     sourceRegion,
     driverChatId,
     chat
@@ -358,13 +446,23 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
     return false;
   }
 
-  if (!commandText.startsWith(".")) {
+  const trimmedCommandText = commandText.trim();
+  if (!trimmedCommandText.startsWith(".")) {
     return false;
   }
 
-  const [rawCommand = "", ...rest] = commandText.trim().split(/\s+/);
+  if (trimmedCommandText === ".") {
+    return true;
+  }
+
+  const [rawCommand = "", ...rest] = trimmedCommandText.split(/\s+/);
   const command = rawCommand.toLowerCase();
   const arg = rest.join(" ").trim();
+
+  if (command === ".help") {
+    await replyToEvent(client, event, ADMIN_COMMAND_HELP_TEXT);
+    return true;
+  }
 
   if (command === ".pause") {
     state.paused = true;
@@ -387,9 +485,13 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
         `TASHKENT passenger: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
         `GULISTON passenger: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
         `KOMSOMOL passenger: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.join(", ") || "-"}`,
+        `TASHKENT usernames: ${env.PASSENGER_CHAT_USERNAMES_TASHKENT.join(", ") || "-"}`,
+        `GULISTON usernames: ${env.PASSENGER_CHAT_USERNAMES_GULISTON.join(", ") || "-"}`,
+        `KOMSOMOL usernames: ${env.PASSENGER_CHAT_USERNAMES_KOMSOMOL.join(", ") || "-"}`,
         `TASHKENT driver: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
         `GULISTON driver: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
         `KOMSOMOL driver: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`,
+        `Driver delivery: ${env.DRIVER_DELIVERY_MODE} (requested: ${env.DRIVER_DELIVERY_REQUESTED_MODE})`,
         `Pauza: ${state.paused ? "ha" : "yo'q"}`
       ].join("\n")
     );
@@ -581,11 +683,6 @@ async function handleAdminCommand(client: TelegramClient, event: NewMessageEvent
     return true;
   }
 
-  await replyToEvent(
-    client,
-    event,
-    "Mavjud commandlar: .status, .stats, .test <text>, .sources, .source_probe, .pause, .resume, .last <n>, .keywords <category>, .keyword_count, .add_keyword <category> \"phrase\" <weight>, .reload_keywords"
-  );
   return true;
 }
 
@@ -619,7 +716,7 @@ async function buildUnifiedPayload(event: NewMessageEvent): Promise<UnifiedIncom
   const senderId = senderIdRaw ?? `chat:${sourceChatId}`;
   const senderFullName = formatEntityName(sender) || formatEntityName(chat) || senderId;
   const senderUsername = toText((sender as any)?.username || (sender as any)?.usernames?.[0]?.username) || null;
-  const sourceChatUsername = toText((chat as any)?.username || (chat as any)?.usernames?.[0]?.username) || null;
+  const sourceChatUsername = getEntityUsername(chat);
   const sourceChatTitle = formatEntityName(chat) || sourceChatId;
 
   return {
@@ -662,7 +759,7 @@ async function buildUnifiedPayloadFromStoredMessage(
   const senderId = senderIdRaw ?? `chat:${sourceChatId}`;
   const senderFullName = formatEntityName(senderEntity) || formatEntityName(chat) || senderId;
   const senderUsername = toText((senderEntity as any)?.username || (senderEntity as any)?.usernames?.[0]?.username) || null;
-  const sourceChatUsername = toText((chat as any)?.username || (chat as any)?.usernames?.[0]?.username) || null;
+  const sourceChatUsername = getEntityUsername(chat);
   const sourceChatTitle = formatEntityName(chat) || sourceChatId;
 
   const payload: UnifiedIncomingMessage = {
@@ -690,6 +787,36 @@ async function buildUnifiedPayloadFromStoredMessage(
     payload,
     senderEntity
   };
+}
+
+async function resolveConfiguredPassengerUsernameSources(client: TelegramClient): Promise<void> {
+  const entries = Object.entries(env.PASSENGER_CHAT_USERNAMES_BY_REGION) as Array<[SourceRegion, string[]]>;
+
+  for (const [region, usernames] of entries) {
+    for (const username of usernames) {
+      try {
+        const entity = await client.getEntity(username);
+        const chatId = toNumberId(getPeerId(entity, true));
+        if (chatId === null) {
+          await writeWarn("Configured passenger username resolved without numeric chat id", { username, region });
+          continue;
+        }
+
+        registerResolvedPassengerChat(chatId, region);
+        await writeInfo("Configured passenger username resolved", {
+          username,
+          region,
+          chatId
+        });
+      } catch (error) {
+        await writeWarn("Failed to resolve configured passenger username", {
+          username,
+          region,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
 }
 
 export async function startUserbotListener(client: TelegramClient): Promise<void> {
@@ -966,6 +1093,17 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   ): UnifiedMessageActions => {
     const actions: UnifiedMessageActions = {
       sendToDriver: async (formattedText, _originalText) => {
+        if (env.DRIVER_DELIVERY_MODE === "bot") {
+          return await runThrottledTelegramWrite("send_driver_summary_bot_bridge", async () =>
+            sendDriverLeadViaBotBridge({
+              payload,
+              driverChatId,
+              formattedText,
+              originalText: _originalText
+            })
+          );
+        }
+
         const sent = await runThrottledTelegramWrite("send_driver_summary", async () =>
           withDriverPeerRetry("send_driver_summary", driverChatId, async (driverInputPeer) =>
             client.sendMessage(driverInputPeer, {
@@ -1399,6 +1537,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     }
   };
 
+  await resolveConfiguredPassengerUsernameSources(client);
   await runStartupBackfill();
 
   client.addEventHandler(
@@ -1432,7 +1571,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   await writeInfo("Userbot listener started", {
     sourceChats: env.PASSENGER_CHAT_IDS,
     passengerByRegion: env.PASSENGER_CHAT_IDS_BY_REGION,
+    passengerUsernamesByRegion: env.PASSENGER_CHAT_USERNAMES_BY_REGION,
     driverByRegion: env.DRIVER_CHAT_ID_BY_REGION,
+    driverDeliveryMode: env.DRIVER_DELIVERY_MODE,
+    driverDeliveryRequestedMode: env.DRIVER_DELIVERY_REQUESTED_MODE,
     adminId: env.ADMIN_TELEGRAM_ID
   });
 }

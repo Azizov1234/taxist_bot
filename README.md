@@ -29,16 +29,20 @@ Bu loyiha eski grammY bot kodini saqlagan holda userbot rejimini default qiladi.
 - API keylar faqat `.env` ichida bo'lsin, kodga yozilmang.
 - API key/token/session/hash qiymatlari logga chiqmasligi kerak.
 - Agar API key skrinshot/chat/GitHub'da ko'rinib qolsa, darhol regenerate qiling.
-- `AI_PROVIDER_ORDER` orqali provider tartibini istalgan payt o'zgartirish mumkin.
+- AI default o'chiq (`AI_ENABLED=false`); kerak bo'lsa keylarni qo'shib, provider tartibini `AI_PROVIDER_ORDER` bilan sozlang.
 
 ## ENV namunasi
 Asosiy maydonlar `.env.example` ichida tayyor.
 - Tavsiya etiladi: region bo'yicha ajratish
 - `PASSENGER_CHAT_IDS_TASHKENT`, `PASSENGER_CHAT_IDS_GULISTON`, `PASSENGER_CHAT_IDS_KOMSOMOL`
+- Public username/link source'lar uchun: `PASSENGER_CHAT_USERNAMES_TASHKENT`, `PASSENGER_CHAT_USERNAMES_GULISTON`, `PASSENGER_CHAT_USERNAMES_KOMSOMOL`
 - `DRIVER_CHAT_ID_TASHKENT`, `DRIVER_CHAT_ID_GULISTON`, `DRIVER_CHAT_ID_KOMSOMOL`
 - Legacy fallback ham bor: `PASSENGER_CHAT_IDS`, `DRIVER_CHAT_ID`
 - `PASSENGER_HELP_GROUP_LINK` (ixtiyoriy): username/telefon bo'lmasa yo'lovchiga lichkada yuboriladigan yordamchi guruh havolasi.
 - `DRIVER_PREMIUM_GROUP_LINK` (ixtiyoriy): haydovchi pullik guruhiga qo'shilish havolasi. Driver reklama xabari bloklanganda guruh va lichkaga shu link yuboriladi.
+- `TELEGRAM_BOT_TOKEN` (ixtiyoriy): userbot mode'da admin command javoblarini va driver kanal postlarini oddiy bot nomidan yuborish uchun.
+- `ADMIN_COMMAND_REPLY_MODE=bot|userbot|off` (default: `bot`): admin command javob transporti.
+- `DRIVER_DELIVERY_MODE=auto|bot|userbot` (default: `auto`): `auto` token bo'lsa oddiy bot orqali, token bo'lmasa eski userbot transporti orqali yuboradi. Userbot driver kanalga umuman yozmasin desangiz `bot` qiling va `TELEGRAM_BOT_TOKEN`ni to'ldiring.
 
 ## Scriptlar
 - `npm run dev` - default userbot (`src/main.ts`)
@@ -71,7 +75,7 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 10. Rule-based analyzer
 11. AI analyzer (provider fallback)
 12. AI xato bo'lsa rule-based fallback
-13. Lead bo'lsa source regioniga mos driver chatga formatlangan yuborish
+13. Lead bo'lsa source regioniga mos driver chatga `DRIVER_DELIVERY_MODE` bo'yicha yuborish (`bot` mode'da oddiy Bot API bot post qiladi)
 14. `DELETE_SOURCE_MESSAGE_IF_ADMIN=true` bo'lsa source xabarni o'chirishga urinish
 15. `DELETE_IGNORED_MESSAGE_IF_ADMIN=true` bo'lsa `IGNORED` (noise/spam/reklama) xabarlarni ham source'dan o'chirishga urinish
 16. `SEND_PRIVATE_ACK_TO_PASSENGER=true` bo'lsa xabar egasining lichkasiga tasdiq xabari yuborish
@@ -90,7 +94,9 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `TELEGRAM_STARTUP_CONNECT_RETRY_MS=5000` — startup retry oralig'i.
 
 ## Admin commandlar (faqat `ADMIN_TELEGRAM_ID`)
-Userbot commandlari:
+Userbot listener commandlari. Javoblar default oddiy Bot API orqali yuboriladi (`TELEGRAM_BOT_TOKEN` + `ADMIN_COMMAND_REPLY_MODE=bot`).
+- `.` yakka holda javob qaytarmaydi
+- `.help`
 - `.status`
 - `.stats`
 - `.test <text>`
@@ -100,6 +106,14 @@ Userbot commandlari:
 - `.last 10`
 
 Legacy grammY `/` commandlari ham kodda saqlangan.
+
+## Userbot + Oddiy Bot Bridge
+`TELEGRAM_MODE=userbot` qoladi: userbot passenger/source guruhlarni kuzatadi, klassifikatsiya qiladi va lead payloadni ichki bridge servisiga beradi.
+
+Driver kanalga kim post qilishini `DRIVER_DELIVERY_MODE` belgilaydi:
+- `bot`: faqat oddiy Telegram bot (`TELEGRAM_BOT_TOKEN`) driver kanalga yuboradi.
+- `userbot`: eski GramJS userbot transporti.
+- `auto`: token bo'lsa `bot`, token bo'lmasa `userbot`.
 
 ## Serverga pull va ishga tushirish
 1. Serverda loyihaga kiring: `cd /path/to/taxi-bot`
@@ -111,6 +125,7 @@ Legacy grammY `/` commandlari ham kodda saqlangan.
    - `PASSENGER_CHAT_IDS_TASHKENT`
    - `PASSENGER_CHAT_IDS_GULISTON`
    - `PASSENGER_CHAT_IDS_KOMSOMOL`
+   - `PASSENGER_CHAT_USERNAMES_KOMSOMOL` (public link/username source'lar bo'lsa)
    - `DRIVER_CHAT_ID_TASHKENT`
    - `DRIVER_CHAT_ID_GULISTON`
    - `DRIVER_CHAT_ID_KOMSOMOL`

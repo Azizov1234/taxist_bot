@@ -66,8 +66,10 @@ async function main(): Promise<void> {
   console.log(`Mode: ${env.TELEGRAM_MODE}`);
   console.log(`ENV file path: ${ENV_FILE_PATH}`);
   console.log(`ENV file loaded: ${ENV_FILE_LOADED ? "yes" : "no"}`);
-  console.log(`Passenger chats: ${env.PASSENGER_CHAT_IDS.length}`);
+  console.log(`Passenger chat IDs: ${env.PASSENGER_CHAT_IDS.length}`);
+  console.log(`Passenger usernames: ${env.PASSENGER_CHAT_USERNAMES.length}`);
   console.log(`Driver chat configured: ${env.DRIVER_CHAT_ID !== 0 ? "yes" : "no"}`);
+  console.log(`Driver delivery mode: ${env.DRIVER_DELIVERY_MODE} (requested: ${env.DRIVER_DELIVERY_REQUESTED_MODE})`);
   console.log(`Admin configured: ${Boolean(env.ADMIN_TELEGRAM_ID) ? "yes" : "no"}`);
   console.log(`String session configured: ${env.TELEGRAM_STRING_SESSION.trim().length > 0 ? "yes" : "no"}`);
   console.log(`AI enabled: ${env.AI_ENABLED ? "yes" : "no"}`);
@@ -92,6 +94,10 @@ async function main(): Promise<void> {
 
   if (env.TELEGRAM_MODE === "userbot" && env.TELEGRAM_STRING_SESSION.trim().length === 0) {
     errors.push("TELEGRAM_STRING_SESSION is empty for userbot mode.");
+  }
+
+  if (env.TELEGRAM_MODE === "userbot" && env.DRIVER_DELIVERY_MODE === "userbot") {
+    warnings.push("Driver delivery is using the userbot transport. Set TELEGRAM_BOT_TOKEN and DRIVER_DELIVERY_MODE=bot to post as the ordinary bot.");
   }
 
   await checkLock(errors, warnings);

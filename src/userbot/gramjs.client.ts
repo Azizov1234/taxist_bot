@@ -2,6 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { env } from "../config/env.js";
 import { writeInfo, writeWarn } from "../services/logger.service.js";
+import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
 import { askUser } from "./session.js";
 import { hostname } from "node:os";
 
@@ -51,29 +52,6 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-async function sendBotApiAlert(chatId: number, text: string): Promise<void> {
-  if (!env.TELEGRAM_BOT_TOKEN) {
-    return;
-  }
-
-  const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      chat_id: String(chatId),
-      text
-    })
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Telegram Bot API sendMessage failed (${response.status}): ${body.slice(0, 300)}`);
-  }
-}
-
 async function notifySessionDuplicateAlert(payload: { attempt: number; error: string }): Promise<void> {
   const host = hostname();
   const alertText = [
@@ -109,7 +87,7 @@ async function notifySessionDuplicateAlert(payload: { attempt: number; error: st
 
   for (const chatId of targetChatIds) {
     try {
-      await sendBotApiAlert(chatId, alertText);
+      await sendTelegramBotMessage(chatId, alertText);
     } catch (error) {
       await writeWarn("Failed to send duplicate-session alert via Bot API", {
         chatId,

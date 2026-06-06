@@ -338,6 +338,7 @@ const DRIVER_SUBJECTS_LATIN = [
   "cobalt",
   "cobult",
   "cobolt",
+  "coblt",
   "gentra",
   "nexia",
   "damas",
@@ -363,6 +364,10 @@ const DRIVER_SERVICE_WORDS_LATIN = [
   "taksi bor",
   "taxi bor",
   "taxsi bor",
+  "bow taksi",
+  "bow taksi bor",
+  "bush taksi",
+  "bush taksi bor",
   "mashina bor",
   "mashin bor",
   "moshina bor",
@@ -458,6 +463,7 @@ const DRIVER_PROMO_WORDS_LATIN = [
   "tez va qulay",
   "komfort",
   "konditsioner",
+  "kansaner",
   "toza salon",
   "tajribali haydovchi",
   "ishonchli haydovchi",
@@ -557,6 +563,7 @@ const DRIVER_WORDS_CYRILLIC = [
 
 const CARGO_WORDS = [
   "pochta",
+  "pocta",
   "posilka",
   "yuk",
   "dostavka",
@@ -568,6 +575,8 @@ const CARGO_WORDS = [
   "sumka",
   "narsa",
   "pochta bor",
+  "pocta bor",
+  "pocta bosa",
   "posilka bor",
   "yuk bor",
   "pochta ketadi",
@@ -709,6 +718,8 @@ const DRIVER_HIGH_WEIGHTS = new Map<string, number>([
 
 const CARGO_HIGH_WEIGHTS = new Map<string, number>([
   [n("pochta bor"), 8],
+  [n("pocta bor"), 8],
+  [n("pocta bosa"), 10],
   [n("posilka bor"), 8],
   [n("yuk tashish"), 8],
   [n("kategoriya pochta"), 10]
@@ -854,6 +865,8 @@ const DRIVER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "tez va qulay", weight: 7 },
   { phrase: "komfort", weight: 6 },
   { phrase: "konditsioner", weight: 6 },
+  { phrase: "kansaner", weight: 6 },
+  { phrase: "kansaner bor", weight: 8 },
   { phrase: "toza salon", weight: 6 },
   { phrase: "tajribali haydovchi", weight: 7 },
   { phrase: "ishonchli haydovchi", weight: 7 },
@@ -864,6 +877,7 @@ const DRIVER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "cobalt", weight: 6 },
   { phrase: "cobult", weight: 6 },
   { phrase: "cobolt", weight: 6 },
+  { phrase: "coblt", weight: 6 },
   { phrase: "koblt", weight: 6 },
   { phrase: "gentra", weight: 6 },
   { phrase: "nexia", weight: 6 },
@@ -880,7 +894,10 @@ const DRIVER_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
 
 const CARGO_MANUAL_EXPANSION: Array<{ phrase: string; weight: number }> = [
   { phrase: "pochta", weight: 7 },
+  { phrase: "pocta", weight: 7 },
   { phrase: "pochta bor", weight: 10 },
+  { phrase: "pocta bor", weight: 10 },
+  { phrase: "pocta bosa", weight: 10 },
   { phrase: "pochta ketadi", weight: 8 },
   { phrase: "pochta olib ketamiz", weight: 9 },
   { phrase: "pochta olib boramiz", weight: 9 },
@@ -1145,6 +1162,7 @@ function generateDriverPhrases(): void {
 function generateCargoPhrases(): void {
   for (const pair of routePairs(LOCATIONS_LATIN)) {
     addKeyword(KeywordCategory.CARGO, `${pair.from}dan ${pair.to}ga pochta bor`, 8);
+    addKeyword(KeywordCategory.CARGO, `${pair.from}dan ${pair.to}ga pocta bor`, 8);
     addKeyword(KeywordCategory.CARGO, `${pair.from}dan ${pair.to}ga posilka bor`, 8);
     addKeyword(KeywordCategory.CARGO, `${pair.from}dan ${pair.to}ga yuk bor`, 8);
     addKeyword(KeywordCategory.CARGO, `${pair.from}dan ${pair.to}ga pochta ketadi`, 7);
@@ -1242,7 +1260,7 @@ function generateRegexKeywords(): void {
     { category: KeywordCategory.PASSENGER, pattern: "\\b(kim|ким)\\s*(ketadi|boradi|olib ketadi|кетади|боради|олиб кетади)\\b", weight: 7 },
     { category: KeywordCategory.DRIVER, pattern: "\\b(bo'?sh|bosh|бўш|буш)\\s*(joy|жой)\\s*(bor|бор)\\b", weight: 9 },
     { category: KeywordCategory.DRIVER, pattern: "\\b(taxi|taksi|taxsi)\\s*bor\\b", weight: 9 },
-    { category: KeywordCategory.DRIVER, pattern: "\\b(bo'?sh|bosh)\\s+(taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\\b(?![^.!?\\n]{0,18}\\b(bormi|bori?mi|yo'?qmi|yuqmi|kerak|kere|kk|krk)\\b)(?:[^.!?\\n]{0,24}\\bbor\\b)?", weight: 9 },
+    { category: KeywordCategory.DRIVER, pattern: "\\b(bo'?sh|bosh|bush|bow)\\s+(taxi|taksi|taxsi|mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin|avto)\\b(?![^.!?\\n]{0,18}\\b(bormi|bori?mi|yo'?qmi|yuqmi|kerak|kere|kk|krk)\\b)(?:[^.!?\\n]{0,24}\\bbor\\b)?", weight: 9 },
     { category: KeywordCategory.DRIVER, pattern: "\\b(mashina|mashin|moshina|moshin|mowina|mowin|mawina|mawin)\\s*bor\\b", weight: 9 },
     { category: KeywordCategory.DRIVER, pattern: "\\b(бўш|буш|бош)?\\s*(машина|машин|мошина|мошин)\\s*бор\\b", weight: 9 },
     { category: KeywordCategory.DRIVER, pattern: "\\b\\d+\\s*ta\\s*(joy|жой)\\s*(bor|бор)\\b", weight: 8 },
@@ -1253,12 +1271,12 @@ function generateRegexKeywords(): void {
     { category: KeywordCategory.DRIVER, pattern: "\\b(kerak bo'?lsa|керак бўлса|керак булса)\\s*(yozing|ёзинг)\\b", weight: 7 },
     {
       category: KeywordCategory.DRIVER,
-      pattern: "\\b(?:odam|yo'?lovchi|yolovchi|yulovchi|pochta|yuk)\\b.{0,25}\\bbo'?lsa\\b.{0,25}\\b(?:olaman|olamiz|olamz)\\b",
+      pattern: "\\b(?:odam|yo'?lovchi|yolovchi|yulovchi|po(?:ch|c)ta|yuk)\\b.{0,25}\\bbo'?lsa\\b.{0,25}\\b(?:olaman|olamiz|olamz)\\b",
       weight: 9
     },
     {
       category: KeywordCategory.DRIVER,
-      pattern: "\\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz)\\b.{0,35}\\b(?:odam|yo'?lovchi|yolovchi|yulovchi|pochta|yuk)\\b.{0,25}\\b(?:olaman|olamiz|olamz)\\b",
+      pattern: "\\b(?:yuraman|yuramiz|ketaman|ketamiz|chiqaman|chiqamiz)\\b.{0,35}\\b(?:odam|yo'?lovchi|yolovchi|yulovchi|po(?:ch|c)ta|yuk)\\b.{0,25}\\b(?:olaman|olamiz|olamz)\\b",
       weight: 9
     },
     {
@@ -1273,7 +1291,7 @@ function generateRegexKeywords(): void {
     { category: KeywordCategory.PASSENGER, pattern: "\\b\\p{L}+\\s+(?:shaharga|waharga)\\b.{0,25}\\b(?:srochna|srochno|srowna|srowno)\\b.{0,20}\\b(?:yuramiz|yuramz)\\b", weight: 10 },
     { category: KeywordCategory.CARGO, pattern: "\\b(qayerdan|қаердан)\\b.*\\b(qayerga|қаерга)\\b", weight: 7 },
     { category: KeywordCategory.CARGO, pattern: "\\b(yuboruvchi|юборувчи)\\b.*\\b(qabul qiluvchi|қабул қилувчи)\\b", weight: 7 },
-    { category: KeywordCategory.CARGO, pattern: "\\b(kategoriya|категория)\\s*[:\\-]?\\s*(pochta|почта)\\b", weight: 10 }
+    { category: KeywordCategory.CARGO, pattern: "\\b(kategoriya|категория)\\s*[:\\-]?\\s*(po(?:ch|c)ta|почта)\\b", weight: 10 }
   ];
 
   for (const item of patterns) {

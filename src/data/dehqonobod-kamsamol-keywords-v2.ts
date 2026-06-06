@@ -343,6 +343,8 @@ const DRIVER_MANUAL: Array<{ phrase: string; weight: number }> = [
   { phrase: "qulay narx", weight: 7 },
   { phrase: "komfort", weight: 6 },
   { phrase: "konditsioner", weight: 6 },
+  { phrase: "kansaner", weight: 6 },
+  { phrase: "kansaner bor", weight: 8 },
   { phrase: "haydovchi", weight: 6 },
   { phrase: "voditel", weight: 6 },
   { phrase: "taksist", weight: 6 },
@@ -351,6 +353,7 @@ const DRIVER_MANUAL: Array<{ phrase: string; weight: number }> = [
   { phrase: "lasetti", weight: 6 },
   { phrase: "cobalt", weight: 6 },
   { phrase: "cobult", weight: 6 },
+  { phrase: "coblt", weight: 6 },
   { phrase: "gentra", weight: 6 },
   { phrase: "nexia", weight: 6 },
   { phrase: "damas", weight: 6 },
@@ -398,7 +401,10 @@ const DRIVER_CYRILLIC: Array<{ phrase: string; weight: number }> = [
 
 const CARGO_MANUAL: Array<{ phrase: string; weight: number }> = [
   { phrase: "pochta", weight: 7 },
+  { phrase: "pocta", weight: 7 },
   { phrase: "pochta bor", weight: 9 },
+  { phrase: "pocta bor", weight: 9 },
+  { phrase: "pocta bosa", weight: 10 },
   { phrase: "pochta ketadi", weight: 8 },
   { phrase: "pochta olib ketamiz", weight: 9 },
   { phrase: "pochta olib boramiz", weight: 9 },
@@ -557,7 +563,7 @@ const REGEX_KEYWORDS: Array<{ category: KeywordCategory; pattern: string; weight
   { category: KeywordCategory.DRIVER, pattern: "\\b(reys|reis|рейс)\\s*(bor|бор)\\b", weight: 9 },
   { category: KeywordCategory.CARGO, pattern: "\\b(qayerdan|қаердан)\\b.*\\b(qayerga|қаерга)\\b", weight: 7 },
   { category: KeywordCategory.CARGO, pattern: "\\b(yuboruvchi|юборувчи)\\b.*\\b(qabul qiluvchi|қабул қилувчи)\\b", weight: 8 },
-  { category: KeywordCategory.CARGO, pattern: "\\b(kategoriya|категория)\\s*[:\\-]?\\s*(pochta|почта)\\b", weight: 10 }
+  { category: KeywordCategory.CARGO, pattern: "\\b(kategoriya|категория)\\s*[:\\-]?\\s*(po(?:ch|c)ta|почта)\\b", weight: 10 }
 ];
 
 function template(value: string, from: string, to: string): string {
@@ -648,6 +654,7 @@ export function buildDehqonobodKamsamolV2Keywords(): DkV2KeywordRecord[] {
         addKeyword(map, KeywordCategory.DRIVER, template(routeTemplate, from, to), 8, KeywordMatchType.PHRASE, 2);
       }
       addKeyword(map, KeywordCategory.CARGO, `${from}dan ${to}ga pochta bor`, 8, KeywordMatchType.PHRASE, 2);
+      addKeyword(map, KeywordCategory.CARGO, `${from}dan ${to}ga pocta bor`, 8, KeywordMatchType.PHRASE, 2);
       addKeyword(map, KeywordCategory.CARGO, `${from}dan ${to}ga yuk bor`, 8, KeywordMatchType.PHRASE, 2);
     }
   }

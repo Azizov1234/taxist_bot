@@ -24,8 +24,6 @@ required_keys=(
   "TELEGRAM_API_ID"
   "TELEGRAM_API_HASH"
   "TELEGRAM_STRING_SESSION"
-  "PASSENGER_CHAT_IDS"
-  "DRIVER_CHAT_ID"
   "ADMIN_TELEGRAM_ID"
   "DATABASE_URL"
 )
@@ -42,6 +40,64 @@ if [[ ${#missing_keys[@]} -gt 0 ]]; then
   echo ""
   echo "ERROR: .env is missing required keys:"
   printf -- "- %s\n" "${missing_keys[@]}"
+  exit 1
+fi
+
+passenger_source_keys=(
+  "PASSENGER_CHAT_IDS"
+  "PASSENGER_CHAT_IDS_TASHKENT"
+  "PASSENGER_CHAT_IDS_GULISTON"
+  "PASSENGER_CHAT_IDS_KOMSOMOL"
+  "PASSENGER_CHAT_USERNAMES"
+  "PASSENGER_CHAT_USERNAMES_TASHKENT"
+  "PASSENGER_CHAT_USERNAMES_GULISTON"
+  "PASSENGER_CHAT_USERNAMES_KOMSOMOL"
+)
+
+has_passenger_source="false"
+for key in "${passenger_source_keys[@]}"; do
+  value="$(grep -E "^${key}=" .env | tail -n1 | cut -d'=' -f2- | tr -d '\r' | xargs || true)"
+  if [[ -n "$value" ]]; then
+    has_passenger_source="true"
+    break
+  fi
+done
+
+if [[ "$has_passenger_source" != "true" ]]; then
+  echo ""
+  echo "ERROR: .env must include at least one passenger source key:"
+  printf -- "- %s\n" "${passenger_source_keys[@]}"
+  exit 1
+fi
+
+driver_keys=(
+  "DRIVER_CHAT_ID"
+  "DRIVER_CHAT_ID_TASHKENT"
+  "DRIVER_CHAT_ID_GULISTON"
+  "DRIVER_CHAT_ID_KOMSOMOL"
+)
+
+has_driver_chat="false"
+for key in "${driver_keys[@]}"; do
+  value="$(grep -E "^${key}=" .env | tail -n1 | cut -d'=' -f2- | tr -d '\r' | xargs || true)"
+  if [[ -n "$value" ]]; then
+    has_driver_chat="true"
+    break
+  fi
+done
+
+if [[ "$has_driver_chat" != "true" ]]; then
+  echo ""
+  echo "ERROR: .env must include at least one driver chat key:"
+  printf -- "- %s\n" "${driver_keys[@]}"
+  exit 1
+fi
+
+driver_delivery_mode="$(grep -E "^DRIVER_DELIVERY_MODE=" .env | tail -n1 | cut -d'=' -f2- | tr -d '\r' | xargs || true)"
+telegram_bot_token="$(grep -E "^TELEGRAM_BOT_TOKEN=" .env | tail -n1 | cut -d'=' -f2- | tr -d '\r' | xargs || true)"
+if [[ "$driver_delivery_mode" == "bot" && -z "$telegram_bot_token" ]]; then
+  echo ""
+  echo "ERROR: TELEGRAM_BOT_TOKEN is required when DRIVER_DELIVERY_MODE=bot"
   exit 1
 fi
 

@@ -5,6 +5,10 @@ function isCleanupTarget(fileName: string): boolean {
     return true;
   }
 
+  if (/^taxi-bot-dev-\d+(?:\.err)?\.log$/u.test(fileName)) {
+    return true;
+  }
+
   return fileName.startsWith("_") && fileName.endsWith(".log");
 }
 

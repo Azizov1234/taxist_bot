@@ -69,6 +69,8 @@ const optionalChatIdSchema = z.preprocess(
 
 const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
 const runtimeModeSchema = z.enum(["userbot", "legacy"]);
+const adminCommandReplyModeSchema = z.enum(["bot", "userbot", "off"]);
+const driverDeliveryModeSchema = z.enum(["auto", "bot", "userbot"]);
 const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
 const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
 const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON", "KOMSOMOL"]);
@@ -86,6 +88,20 @@ const envSchema = z.object({
   TELEGRAM_API_HASH: optionalStringSchema,
   TELEGRAM_STRING_SESSION: z.preprocess((value) => (value === undefined ? "" : String(value).trim()), z.string()),
   TELEGRAM_BOT_TOKEN: optionalStringSchema,
+  ADMIN_COMMAND_REPLY_MODE: z.preprocess(
+    (value) => {
+      const sanitized = emptyToUndefined(value);
+      return sanitized === undefined ? undefined : String(sanitized).trim().toLowerCase();
+    },
+    adminCommandReplyModeSchema.optional()
+  ),
+  DRIVER_DELIVERY_MODE: z.preprocess(
+    (value) => {
+      const sanitized = emptyToUndefined(value);
+      return sanitized === undefined ? undefined : String(sanitized).trim().toLowerCase();
+    },
+    driverDeliveryModeSchema.optional()
+  ),
   TELEGRAM_USE_WSS: optionalBooleanSchema,
   TELEGRAM_FORCE_SMS: optionalBooleanSchema,
   TELEGRAM_LOGIN_MODE: z.preprocess(
@@ -104,6 +120,10 @@ const envSchema = z.object({
   PASSENGER_CHAT_IDS_TASHKENT: optionalStringSchema,
   PASSENGER_CHAT_IDS_GULISTON: optionalStringSchema,
   PASSENGER_CHAT_IDS_KOMSOMOL: optionalStringSchema,
+  PASSENGER_CHAT_USERNAMES: optionalStringSchema,
+  PASSENGER_CHAT_USERNAMES_TASHKENT: optionalStringSchema,
+  PASSENGER_CHAT_USERNAMES_GULISTON: optionalStringSchema,
+  PASSENGER_CHAT_USERNAMES_KOMSOMOL: optionalStringSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
   DRIVER_CHAT_ID_TASHKENT: optionalChatIdSchema,
   DRIVER_CHAT_ID_GULISTON: optionalChatIdSchema,
@@ -172,6 +192,43 @@ function parseChatIdList(rawValue: string | undefined): number[] {
   return [...new Set(parsed)];
 }
 
+export function normalizeTelegramChatUsername(rawValue: string | undefined | null): string | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  let value = rawValue.trim();
+  if (value.length === 0) {
+    return null;
+  }
+
+  const usernameCandidate = value
+    .replace(/^https?:\/\/t\.me\//i, "")
+    .replace(/^https?:\/\/telegram\.me\//i, "")
+    .replace(/^@/, "")
+    .split(/[/?#]/u)[0];
+  value = usernameCandidate?.trim() ?? "";
+
+  if (!/^[a-z][a-z0-9_]{4,31}$/iu.test(value)) {
+    return null;
+  }
+
+  return value.toLowerCase();
+}
+
+function parseChatUsernameList(rawValue: string | undefined): string[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  const parsed = rawValue
+    .split(/[\s,]+/u)
+    .map((value) => normalizeTelegramChatUsername(value))
+    .filter((value): value is string => value !== null);
+
+  return [...new Set(parsed)];
+}
+
 function parseProviderOrder(rawValue: string | undefined): AIProviderName[] {
   const values = (rawValue ?? "gemini,groq,cerebras,openrouter,cloudflare")
     .split(",")
@@ -212,9 +269,19 @@ const passengerChatIdsByRegion: Record<SourceRegion, number[]> = {
   GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON),
   KOMSOMOL: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_KOMSOMOL)
 };
+const legacyPassengerChatUsernames = parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES);
+const passengerChatUsernamesByRegion: Record<SourceRegion, string[]> = {
+  TASHKENT: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_TASHKENT),
+  GULISTON: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_GULISTON),
+  KOMSOMOL: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_KOMSOMOL)
+};
 
 if (SOURCE_REGIONS.every((region) => passengerChatIdsByRegion[region].length === 0) && legacyPassengerChatIds.length > 0) {
   passengerChatIdsByRegion.TASHKENT = legacyPassengerChatIds;
+}
+
+if (SOURCE_REGIONS.every((region) => passengerChatUsernamesByRegion[region].length === 0) && legacyPassengerChatUsernames.length > 0) {
+  passengerChatUsernamesByRegion.TASHKENT = legacyPassengerChatUsernames;
 }
 
 const passengerChatRegionById = new Map<number, SourceRegion>();
@@ -228,11 +295,23 @@ for (const region of SOURCE_REGIONS) {
   }
 }
 
-const passengerChatIds = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatIdsByRegion[region]))];
+const passengerChatRegionByUsername = new Map<string, SourceRegion>();
+for (const region of SOURCE_REGIONS) {
+  for (const username of passengerChatUsernamesByRegion[region]) {
+    const existingRegion = passengerChatRegionByUsername.get(username);
+    if (existingRegion && existingRegion !== region) {
+      throw new Error(`Invalid environment variables: passenger username ${username} assigned to multiple regions (${existingRegion}, ${region})`);
+    }
+    passengerChatRegionByUsername.set(username, region);
+  }
+}
 
-if (passengerChatIds.length === 0 && !isGetIdsMode) {
+const passengerChatIds = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatIdsByRegion[region]))];
+const passengerChatUsernames = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatUsernamesByRegion[region]))];
+
+if (passengerChatIds.length === 0 && passengerChatUsernames.length === 0 && !isGetIdsMode) {
   throw new Error(
-    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS or regional PASSENGER_CHAT_IDS_*)"
+    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS/PASSENGER_CHAT_USERNAMES or regional variants)"
   );
 }
 
@@ -244,7 +323,8 @@ const driverChatIdByRegion: Record<SourceRegion, number | null> = {
 };
 
 for (const region of SOURCE_REGIONS) {
-  if (passengerChatIdsByRegion[region].length > 0 && driverChatIdByRegion[region] === null && !isGetIdsMode) {
+  const hasPassengerSources = passengerChatIdsByRegion[region].length > 0 || passengerChatUsernamesByRegion[region].length > 0;
+  if (hasPassengerSources && driverChatIdByRegion[region] === null && !isGetIdsMode) {
     throw new Error(`Invalid environment variables: DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
   }
 }
@@ -269,7 +349,15 @@ if (runtimeMode === "legacy" && !parsed.data.TELEGRAM_BOT_TOKEN) {
   throw new Error("Invalid environment variables: TELEGRAM_BOT_TOKEN is required for legacy mode");
 }
 
-const aiEnabled = parsed.data.AI_ENABLED ?? true;
+const requestedDriverDeliveryMode = parsed.data.DRIVER_DELIVERY_MODE ?? "auto";
+const driverDeliveryMode =
+  requestedDriverDeliveryMode === "auto" ? (parsed.data.TELEGRAM_BOT_TOKEN ? "bot" : "userbot") : requestedDriverDeliveryMode;
+
+if (driverDeliveryMode === "bot" && !parsed.data.TELEGRAM_BOT_TOKEN && !isGetIdsMode) {
+  throw new Error("Invalid environment variables: TELEGRAM_BOT_TOKEN is required when DRIVER_DELIVERY_MODE=bot");
+}
+
+const aiEnabled = parsed.data.AI_ENABLED ?? false;
 const minConfidence = parsed.data.AI_MIN_CONFIDENCE ?? parsed.data.MIN_CONFIDENCE ?? 0.65;
 const aiCooldownMinutes = parsed.data.AI_COOLDOWN_MINUTES ?? 10;
 const aiTimeoutMs = parsed.data.AI_TIMEOUT_MS ?? 15_000;
@@ -349,6 +437,9 @@ export const env = {
   TELEGRAM_API_HASH: parsed.data.TELEGRAM_API_HASH ?? "",
   TELEGRAM_STRING_SESSION: parsed.data.TELEGRAM_STRING_SESSION,
   TELEGRAM_BOT_TOKEN: parsed.data.TELEGRAM_BOT_TOKEN,
+  ADMIN_COMMAND_REPLY_MODE: parsed.data.ADMIN_COMMAND_REPLY_MODE ?? "bot",
+  DRIVER_DELIVERY_MODE: driverDeliveryMode,
+  DRIVER_DELIVERY_REQUESTED_MODE: requestedDriverDeliveryMode,
   TELEGRAM_USE_WSS: telegramUseWss,
   TELEGRAM_LOGIN_MODE: telegramLoginMode,
   TELEGRAM_FORCE_SMS: telegramForceSms,
@@ -362,6 +453,11 @@ export const env = {
   PASSENGER_CHAT_IDS_GULISTON: passengerChatIdsByRegion.GULISTON,
   PASSENGER_CHAT_IDS_KOMSOMOL: passengerChatIdsByRegion.KOMSOMOL,
   PASSENGER_CHAT_IDS_BY_REGION: passengerChatIdsByRegion,
+  PASSENGER_CHAT_USERNAMES: passengerChatUsernames,
+  PASSENGER_CHAT_USERNAMES_TASHKENT: passengerChatUsernamesByRegion.TASHKENT,
+  PASSENGER_CHAT_USERNAMES_GULISTON: passengerChatUsernamesByRegion.GULISTON,
+  PASSENGER_CHAT_USERNAMES_KOMSOMOL: passengerChatUsernamesByRegion.KOMSOMOL,
+  PASSENGER_CHAT_USERNAMES_BY_REGION: passengerChatUsernamesByRegion,
   DRIVER_CHAT_ID: driverChatId,
   DRIVER_CHAT_ID_TASHKENT: driverChatIdByRegion.TASHKENT,
   DRIVER_CHAT_ID_GULISTON: driverChatIdByRegion.GULISTON,
@@ -407,6 +503,32 @@ export const env = {
 
 export function getSourceRegionByPassengerChatId(chatId: number): SourceRegion | null {
   return passengerChatRegionById.get(chatId) ?? null;
+}
+
+export function getSourceRegionByPassengerChatUsername(username: string | undefined | null): SourceRegion | null {
+  const normalizedUsername = normalizeTelegramChatUsername(username);
+  if (!normalizedUsername) {
+    return null;
+  }
+
+  return passengerChatRegionByUsername.get(normalizedUsername) ?? null;
+}
+
+function pushUnique<T>(list: T[], value: T): void {
+  if (!list.includes(value)) {
+    list.push(value);
+  }
+}
+
+export function registerResolvedPassengerChat(chatId: number, region: SourceRegion): void {
+  const existingRegion = passengerChatRegionById.get(chatId);
+  if (existingRegion && existingRegion !== region) {
+    throw new Error(`Passenger source chat ${chatId} resolved to ${region}, but already mapped to ${existingRegion}`);
+  }
+
+  passengerChatRegionById.set(chatId, region);
+  pushUnique(passengerChatIdsByRegion[region], chatId);
+  pushUnique(passengerChatIds, chatId);
 }
 
 export function getDriverChatIdBySourceChatId(chatId: number): number | null {

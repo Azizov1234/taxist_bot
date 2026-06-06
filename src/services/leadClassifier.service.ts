@@ -119,8 +119,19 @@ Muhim qoidalar:
 - "joy bormi?" odatda PASSENGER_LEAD.
 - "bitta joy bormi" va "2 ta joy bormi" odatda PASSENGER_LEAD.
 - "bo'sh joy bor" odatda DRIVER_AD.
+- "joyim bor", "2 ta joyim bor", "bitta joyim bor" odatda DRIVER_AD.
 - "mashina bor", "moshina bor", "mowina bor", "taxsi bor" odatda DRIVER_AD.
-- "bo'sh taxi bor", "bosh taxsi bor", "bosh moshin" odatda DRIVER_AD.
+- "taxisi bor", "taksisi bor", "taxis bor" odatda DRIVER_AD.
+- "bo'sh taxi bor", "bosh taxsi bor", "bosh moshin", "boshmoshin bor" odatda DRIVER_AD.
+- "bosh bor", "Bosh bor ketadigan aloqaga chiqilar" odatda DRIVER_AD.
+- "такси бор", "бўш такси бор", "буш такси бор" odatda DRIVER_AD.
+- "таксиси бор" odatda DRIVER_AD.
+- "бош бор", "бош мошин бор", "машина бор", "мошина бор" odatda DRIVER_AD.
+- "жойим бор", "2 та жойим бор", "битта жойим бор" odatda DRIVER_AD.
+- "жой бор", "2та жой бор", "3 та жой бор" odatda DRIVER_AD.
+- "kandisaner bor", "kondisaner bor", "kansaner bor", "кондиционер бор" taksi xabari bilan kelsa DRIVER_AD.
+- "bo'w taksi", "bow taksi", "bush taksi", "coblt/cobalt avto bor" odatda DRIVER_AD.
+- "beton/devor/eshik/deraza teshish", "xizmati", qurilish yoki servis reklamasi IGNORE_SPAM.
 - "бош мошин бор", "машина кобальт", "почта булса хам оламиз" odatda DRIVER_AD.
 - "1 kishi bor" odatda PASSENGER_LEAD.
 - "2 kishi bor", "2 odam bor", "yo'lovchi bor", "passajir bor" odatda PASSENGER_LEAD.
@@ -130,7 +141,7 @@ Muhim qoidalar:
 - "har kuni qatnaymiz" DRIVER_AD.
 - "murojaat uchun" odatda DRIVER_AD.
 - "reys bor" DRIVER_AD.
-- "pochta bor" POSTAL_CARGO.
+- "pochta bor", "pocta bor", "pocta bosa" POSTAL_CARGO.
 - "obuna bo'ling" IGNORE_SPAM.
 - Rule yaqin bo'lsa, eng aniq kategoriya tanla, lekin noaniq bo'lsa AMBIGUOUS.
 - Lotin, kirill, ruscha va aralash yozuvni tushun.
@@ -179,7 +190,8 @@ const UZBEK_ENGLISH_HINTS: Array<{ pattern: RegExp; hint: string }> = [
   { pattern: /\b(ketish|borish|ketaman|boraman)\b/iu, hint: "travel intent (go/leave)" },
   { pattern: /\b(odam|kishi)\b/iu, hint: "passenger count mentioned" },
   {
-    pattern: /\b(joy bor|taxi bor|taksi bor|taxsi bor|bo'?sh taxi bor|bosh taxsi bor|bosh moshin|mashina bor|moshina bor|mowina bor|mawina bor|odam olaman|mijoz olaman|yolovchi olaman)\b/iu,
+    pattern:
+      /\b(joy bor|joyim bor|taxi bor|taksi bor|taxsi bor|taxisi bor|taksisi bor|taxis bor|bo'?sh taxi bor|bosh taxsi bor|bo'?w taksi|bow taksi|bush taksi|bosh moshin|boshmoshin|bosh bor|mashina bor|moshina bor|mowina bor|mawina bor|kandisaner bor|kondisaner bor|kansaner bor|konditsioner bor|coblt|odam olaman|mijoz olaman|yolovchi olaman)\b|(?:^|[^\p{L}\p{N}])(?:\u0431[\u045e\u0443]\u0448\s+)?\u0442\u0430\u043a\u0441\u0438(?:\u0441\u0438)?\s+\u0431\u043e\u0440(?=$|[^\p{L}\p{N}])|(?:^|[^\p{L}\p{N}])(?:(?:\d{1,2}|\u0431\u0438\u0442\u0442\u0430)\s*(?:ta|\u0442\u0430)?\s*)?\u0436\u043e\u0439\u0438\u043c\s+\u0431\u043e\u0440(?=$|[^\p{L}\p{N}])/iu,
     hint: "driver advertisement signal"
   }
 ];
