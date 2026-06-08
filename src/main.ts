@@ -3,7 +3,7 @@ import { env, getSourceRegionByPassengerChatId } from "./config/env.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
 import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
 import { writeError, writeInfo, writeWarn } from "./services/logger.service.js";
-import { runLegacyBotWithCatch } from "./index.js";
+import { runLegacyBotWithCatch, startTokenBotLayer } from "./index.js";
 import { createAndConnectUserbotClient } from "./userbot/gramjs.client.js";
 import { startUserbotListener } from "./userbot/userbot.listener.js";
 import type { TelegramClient } from "telegram";
@@ -13,6 +13,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const INSTANCE_LOCK_PATH = join(tmpdir(), "taxi-lead-bot.userbot.lock");
+
+interface StartUserbotModeOptions {
+  beforeUserbotStart?: () => Promise<void>;
+  onShutdown?: () => Promise<void>;
+}
 
 function getEntityTitle(entity: any): string {
   if (!entity) {
@@ -160,7 +165,7 @@ async function acquireInstanceLock(): Promise<() => Promise<void>> {
   }
 }
 
-async function startUserbotMode(): Promise<void> {
+async function startUserbotMode(options: StartUserbotModeOptions = {}): Promise<void> {
   const releaseLock = await acquireInstanceLock();
   let lockReleased = false;
   const safeReleaseLock = async (): Promise<void> => {
@@ -185,6 +190,8 @@ async function startUserbotMode(): Promise<void> {
       });
     }
 
+    await options.beforeUserbotStart?.();
+
     const client = await createAndConnectUserbotClient();
     await validateSourceChats(client);
     const me = await client.getMe();
@@ -208,6 +215,7 @@ async function startUserbotMode(): Promise<void> {
         // ignore
       }
 
+      await options.onShutdown?.();
       await prisma.$disconnect();
       await safeReleaseLock();
       process.exit(0);
@@ -227,14 +235,35 @@ async function startUserbotMode(): Promise<void> {
       // keep process alive for update handlers
     });
   } catch (error) {
+    await options.onShutdown?.();
     await safeReleaseLock();
     throw error;
   }
 }
 
 async function main(): Promise<void> {
-  if (env.TELEGRAM_MODE === "legacy") {
+  if (env.TELEGRAM_MODE === "bot" || env.TELEGRAM_MODE === "legacy") {
     await runLegacyBotWithCatch();
+    return;
+  }
+
+  if (env.TELEGRAM_MODE === "both") {
+    let tokenBot: Awaited<ReturnType<typeof startTokenBotLayer>> = null;
+
+    await startUserbotMode({
+      beforeUserbotStart: async () => {
+        try {
+          tokenBot = await startTokenBotLayer();
+        } catch (error) {
+          await writeWarn("Token bot layer could not be started; userbot will continue", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      },
+      onShutdown: async () => {
+        tokenBot?.stop();
+      }
+    });
     return;
   }
 

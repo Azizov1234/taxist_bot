@@ -8,6 +8,7 @@ import { sendLogToChannel, writeError, writeInfo, writeWarn } from "./services/l
 import { checkConfiguredChats } from "./services/telegramHealth.service.js";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import type { Bot, Context } from "grammy";
 
 function isPollingConflictError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -78,6 +79,53 @@ export async function startLegacyBot(): Promise<void> {
       });
     }
   });
+}
+
+export async function startTokenBotLayer(): Promise<Bot<Context> | null> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    await writeWarn("Token bot layer skipped: TELEGRAM_BOT_TOKEN is not configured");
+    return null;
+  }
+
+  const bot = createBot();
+  let started = false;
+
+  const startedPromise = new Promise<void>((resolveStarted, rejectStarted) => {
+    const pollingPromise = bot.start({
+      drop_pending_updates: true,
+      onStart: async (me) => {
+        started = true;
+        await writeInfo("Token bot layer started", {
+          username: me.username,
+          id: me.id,
+          sourceChatIds: env.PASSENGER_CHAT_IDS,
+          driverChatIds: env.DRIVER_CHAT_IDS
+        });
+        await sendLogToChannel(bot.api, LogLevel.INFO, "Taxi lead token bot ishga tushdi", {
+          username: me.username,
+          id: me.id
+        });
+        resolveStarted();
+      }
+    });
+
+    void pollingPromise.catch(async (error) => {
+      if (isPollingConflictError(error)) {
+        await writeWarn("Polling conflict detected: another bot instance is using the same token", {
+          hint: "Stop all other bot instances or rotate TELEGRAM_BOT_TOKEN via BotFather /revoke"
+        });
+      }
+
+      await writeError("Token bot layer stopped with error", error);
+
+      if (!started) {
+        rejectStarted(error);
+      }
+    });
+  });
+
+  await startedPromise;
+  return bot;
 }
 
 export async function runLegacyBotWithCatch(): Promise<void> {

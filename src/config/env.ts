@@ -68,7 +68,7 @@ const optionalChatIdSchema = z.preprocess(
 );
 
 const logLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
-const runtimeModeSchema = z.enum(["userbot", "legacy"]);
+const runtimeModeSchema = z.enum(["userbot", "bot", "both", "legacy"]);
 const adminCommandReplyModeSchema = z.enum(["bot", "userbot", "off"]);
 const driverDeliveryModeSchema = z.enum(["auto", "bot", "userbot"]);
 const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
@@ -158,6 +158,9 @@ const envSchema = z.object({
   SEND_PRIVATE_ACK_TO_PASSENGER: optionalBooleanSchema,
   LISTENER_BACKFILL_SECONDS: optionalNumberSchema,
   LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
+  LISTENER_PERIODIC_CATCH_UP_ENABLED: optionalBooleanSchema,
+  LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: optionalNumberSchema,
+  LISTENER_PERIODIC_CATCH_UP_LIMIT: optionalNumberSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
   DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
@@ -176,6 +179,24 @@ if (!parsed.success) {
 
 const envData = parsed.data;
 const isGetIdsMode = process.argv.some((arg) => arg.includes("get-ids"));
+
+function failConfig(message: string): never {
+  throw new Error(`Invalid environment variables: ${message}`);
+}
+
+function requireConfig(condition: boolean, message: string): void {
+  if (!condition) {
+    failConfig(message);
+  }
+}
+
+function requireRuntimeConfig(condition: boolean, message: string): void {
+  if (isGetIdsMode) {
+    return;
+  }
+
+  requireConfig(condition, message);
+}
 
 function parseChatIdList(rawValue: string | undefined): number[] {
   if (!rawValue) {
@@ -289,7 +310,7 @@ for (const region of SOURCE_REGIONS) {
   for (const chatId of passengerChatIdsByRegion[region]) {
     const existingRegion = passengerChatRegionById.get(chatId);
     if (existingRegion && existingRegion !== region) {
-      throw new Error(`Invalid environment variables: passenger chat ${chatId} assigned to multiple regions (${existingRegion}, ${region})`);
+      failConfig(`passenger chat ${chatId} assigned to multiple regions (${existingRegion}, ${region})`);
     }
     passengerChatRegionById.set(chatId, region);
   }
@@ -300,7 +321,7 @@ for (const region of SOURCE_REGIONS) {
   for (const username of passengerChatUsernamesByRegion[region]) {
     const existingRegion = passengerChatRegionByUsername.get(username);
     if (existingRegion && existingRegion !== region) {
-      throw new Error(`Invalid environment variables: passenger username ${username} assigned to multiple regions (${existingRegion}, ${region})`);
+      failConfig(`passenger username ${username} assigned to multiple regions (${existingRegion}, ${region})`);
     }
     passengerChatRegionByUsername.set(username, region);
   }
@@ -309,11 +330,10 @@ for (const region of SOURCE_REGIONS) {
 const passengerChatIds = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatIdsByRegion[region]))];
 const passengerChatUsernames = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatUsernamesByRegion[region]))];
 
-if (passengerChatIds.length === 0 && passengerChatUsernames.length === 0 && !isGetIdsMode) {
-  throw new Error(
-    "Invalid environment variables: at least one passenger source chat is required (PASSENGER_CHAT_IDS/PASSENGER_CHAT_USERNAMES or regional variants)"
-  );
-}
+requireRuntimeConfig(
+  passengerChatIds.length > 0 || passengerChatUsernames.length > 0,
+  "at least one passenger source chat is required (PASSENGER_CHAT_IDS/PASSENGER_CHAT_USERNAMES or regional variants)"
+);
 
 const legacyDriverChatId = parsed.data.DRIVER_CHAT_ID;
 const driverChatIdByRegion: Record<SourceRegion, number | null> = {
@@ -324,38 +344,33 @@ const driverChatIdByRegion: Record<SourceRegion, number | null> = {
 
 for (const region of SOURCE_REGIONS) {
   const hasPassengerSources = passengerChatIdsByRegion[region].length > 0 || passengerChatUsernamesByRegion[region].length > 0;
-  if (hasPassengerSources && driverChatIdByRegion[region] === null && !isGetIdsMode) {
-    throw new Error(`Invalid environment variables: DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
-  }
+  requireRuntimeConfig(!hasPassengerSources || driverChatIdByRegion[region] !== null, `DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
 }
 
 const driverChatIds = [...new Set(Object.values(driverChatIdByRegion).filter((chatId): chatId is number => chatId !== null))];
 const driverChatId = SOURCE_REGIONS.map((region) => driverChatIdByRegion[region]).find((chatId): chatId is number => chatId !== null) ?? (isGetIdsMode ? 0 : undefined);
 
 if (driverChatId === undefined) {
-  throw new Error("Invalid environment variables: DRIVER_CHAT_ID is required");
+  failConfig("DRIVER_CHAT_ID is required");
 }
 
-// if (parsed.data.ADMIN_TELEGRAM_ID === undefined && !isGetIdsMode) {
-//   throw new Error("Invalid environment variables: ADMIN_TELEGRAM_ID is required");
-// }
+requireRuntimeConfig(parsed.data.ADMIN_TELEGRAM_ID !== undefined, "ADMIN_TELEGRAM_ID is required");
 
 const runtimeMode = parsed.data.TELEGRAM_MODE ?? "userbot";
-if (runtimeMode === "userbot" && (parsed.data.TELEGRAM_API_ID === undefined || !parsed.data.TELEGRAM_API_HASH)) {
-  throw new Error("Invalid environment variables: TELEGRAM_API_ID and TELEGRAM_API_HASH are required for userbot mode");
-}
+const userbotEnabled = runtimeMode === "userbot" || runtimeMode === "both";
+const tokenBotRequired = runtimeMode === "bot" || runtimeMode === "legacy";
+requireConfig(
+  !userbotEnabled || (parsed.data.TELEGRAM_API_ID !== undefined && Boolean(parsed.data.TELEGRAM_API_HASH)),
+  "TELEGRAM_API_ID and TELEGRAM_API_HASH are required for userbot mode"
+);
 
-if (runtimeMode === "legacy" && !parsed.data.TELEGRAM_BOT_TOKEN) {
-  throw new Error("Invalid environment variables: TELEGRAM_BOT_TOKEN is required for legacy mode");
-}
+requireConfig(!tokenBotRequired || Boolean(parsed.data.TELEGRAM_BOT_TOKEN), "TELEGRAM_BOT_TOKEN is required for bot mode");
 
 const requestedDriverDeliveryMode = parsed.data.DRIVER_DELIVERY_MODE ?? "auto";
 const driverDeliveryMode =
-  requestedDriverDeliveryMode === "auto" ? (parsed.data.TELEGRAM_BOT_TOKEN ? "bot" : "userbot") : requestedDriverDeliveryMode;
+  requestedDriverDeliveryMode === "auto" ? (runtimeMode === "bot" || runtimeMode === "legacy" ? "bot" : "userbot") : requestedDriverDeliveryMode;
 
-if (driverDeliveryMode === "bot" && !parsed.data.TELEGRAM_BOT_TOKEN && !isGetIdsMode) {
-  throw new Error("Invalid environment variables: TELEGRAM_BOT_TOKEN is required when DRIVER_DELIVERY_MODE=bot");
-}
+requireRuntimeConfig(driverDeliveryMode !== "bot" || Boolean(parsed.data.TELEGRAM_BOT_TOKEN), "TELEGRAM_BOT_TOKEN is required when DRIVER_DELIVERY_MODE=bot");
 
 const aiEnabled = parsed.data.AI_ENABLED ?? false;
 const minConfidence = parsed.data.AI_MIN_CONFIDENCE ?? parsed.data.MIN_CONFIDENCE ?? 0.65;
@@ -385,49 +400,28 @@ const telegramStartupConnectRetryMs = parsed.data.TELEGRAM_STARTUP_CONNECT_RETRY
 const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
 const listenerBackfillSeconds = parsed.data.LISTENER_BACKFILL_SECONDS ?? 180;
 const listenerStartupBackfillLimit = parsed.data.LISTENER_STARTUP_BACKFILL_LIMIT ?? 20;
+const listenerPeriodicCatchUpIntervalMs = parsed.data.LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS ?? 30_000;
+const listenerPeriodicCatchUpLimit =
+  parsed.data.LISTENER_PERIODIC_CATCH_UP_LIMIT ?? Math.max(50, listenerStartupBackfillLimit * 4);
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
 
-if (minConfidence < 0 || minConfidence > 1) {
-  throw new Error("Invalid environment variables: AI_MIN_CONFIDENCE (or MIN_CONFIDENCE) must be between 0 and 1");
-}
-
-if (aiCooldownMinutes <= 0) {
-  throw new Error("Invalid environment variables: AI_COOLDOWN_MINUTES must be greater than 0");
-}
-
-if (aiTimeoutMs <= 0) {
-  throw new Error("Invalid environment variables: AI_TIMEOUT_MS must be greater than 0");
-}
-
-if (duplicateWindowMinutes <= 0) {
-  throw new Error("Invalid environment variables: DUPLICATE_WINDOW_MINUTES must be greater than 0");
-}
-
-if (telegramRetryDelayMs <= 0) {
-  throw new Error("Invalid environment variables: TELEGRAM_RETRY_DELAY_MS must be greater than 0");
-}
-
-if (telegramStartupConnectMaxAttempts < 0) {
-  throw new Error("Invalid environment variables: TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS must be 0 or greater");
-}
-
-if (telegramStartupConnectRetryMs <= 0) {
-  throw new Error("Invalid environment variables: TELEGRAM_STARTUP_CONNECT_RETRY_MS must be greater than 0");
-}
-
-if (listenerBackfillSeconds < 0) {
-  throw new Error("Invalid environment variables: LISTENER_BACKFILL_SECONDS must be 0 or greater");
-}
-
-if (listenerStartupBackfillLimit < 0) {
-  throw new Error("Invalid environment variables: LISTENER_STARTUP_BACKFILL_LIMIT must be 0 or greater");
-}
-
-if (providerOrder.length === 0) {
-  throw new Error("Invalid environment variables: AI_PROVIDER_ORDER must include at least one valid provider");
-}
+requireConfig(minConfidence >= 0 && minConfidence <= 1, "AI_MIN_CONFIDENCE (or MIN_CONFIDENCE) must be between 0 and 1");
+requireConfig(aiCooldownMinutes > 0, "AI_COOLDOWN_MINUTES must be greater than 0");
+requireConfig(aiTimeoutMs > 0, "AI_TIMEOUT_MS must be greater than 0");
+requireConfig(duplicateWindowMinutes > 0, "DUPLICATE_WINDOW_MINUTES must be greater than 0");
+requireConfig(telegramRetryDelayMs > 0, "TELEGRAM_RETRY_DELAY_MS must be greater than 0");
+requireConfig(telegramStartupConnectMaxAttempts >= 0, "TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS must be 0 or greater");
+requireConfig(telegramStartupConnectRetryMs > 0, "TELEGRAM_STARTUP_CONNECT_RETRY_MS must be greater than 0");
+requireConfig(listenerBackfillSeconds >= 0, "LISTENER_BACKFILL_SECONDS must be 0 or greater");
+requireConfig(listenerStartupBackfillLimit >= 0, "LISTENER_STARTUP_BACKFILL_LIMIT must be 0 or greater");
+requireConfig(
+  listenerPeriodicCatchUpIntervalMs > 0,
+  "LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS must be greater than 0"
+);
+requireConfig(listenerPeriodicCatchUpLimit >= 0, "LISTENER_PERIODIC_CATCH_UP_LIMIT must be 0 or greater");
+requireConfig(providerOrder.length > 0, "AI_PROVIDER_ORDER must include at least one valid provider");
 
 export const env = {
   NODE_ENV: parsed.data.NODE_ENV,
@@ -496,6 +490,9 @@ export const env = {
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
+  LISTENER_PERIODIC_CATCH_UP_ENABLED: parsed.data.LISTENER_PERIODIC_CATCH_UP_ENABLED ?? true,
+  LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: Math.round(listenerPeriodicCatchUpIntervalMs),
+  LISTENER_PERIODIC_CATCH_UP_LIMIT: Math.round(listenerPeriodicCatchUpLimit),
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
   DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)

@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 
 export interface SendTelegramBotMessageOptions {
   replyToMessageId?: number;
+  replyMarkup?: Record<string, unknown>;
 }
 
 export interface SentTelegramBotMessage {
@@ -28,6 +29,10 @@ export async function sendTelegramBotMessage(
       message_id: options.replyToMessageId,
       allow_sending_without_reply: true
     };
+  }
+
+  if (options.replyMarkup !== undefined) {
+    body.reply_markup = options.replyMarkup;
   }
 
   const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;

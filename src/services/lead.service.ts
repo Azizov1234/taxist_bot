@@ -527,12 +527,17 @@ function isAmbiguousRouteOnlyMessage(normalizedText: string): boolean {
   return /^(qayerdan qayerga|qayerga qayerdan|qayerga|qayerdan|qayerda|qaerdan qaerga|qaerga|qaerdan|РєСѓРґР° РєСѓРґР°|РѕС‚РєСѓРґР° РєСѓРґР°|РєСѓРґР°|РѕС‚РєСѓРґР°|where to|from where)$/iu.test(cleaned);
 }
 
-function shorten(text: string, max = 300): string {
-  if (text.length <= max) {
-    return text;
+function toPositiveUserId(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
   }
 
-  return `${text.slice(0, max)}...`;
+  return parsed;
+}
+
+function errorToString(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function extractRouteParts(route: string | null): { from: string | null; to: string | null } {
@@ -681,7 +686,7 @@ function buildDriverLeadSummary(params: {
     `💰 Narx/kelishuv: ${fareValue}`,
     "",
     "📝 Xabar:",
-    shorten(params.originalMessage, 2500),
+    params.originalMessage,
     "",
     `🔗 Source link: ${sourceMessageLink ?? "mavjud emas"}`
   ].join("\n");
@@ -1254,6 +1259,36 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     }))
   });
 
+  const sourceMessageMeta = {
+    sourceChatId: payload.sourceChatId,
+    sourceMessageId: payload.sourceMessageId
+  };
+  const senderMessageMeta = {
+    ...sourceMessageMeta,
+    senderId: payload.senderId,
+    senderDisplayName
+  };
+  const notifySafely = async (params: {
+    send: () => Promise<void>;
+    successLog: string;
+    failureLog: string;
+    meta?: Record<string, unknown>;
+  }): Promise<boolean> => {
+    const meta = { ...sourceMessageMeta, ...(params.meta ?? {}) };
+
+    try {
+      await params.send();
+      await writeInfo(params.successLog, meta);
+      return true;
+    } catch (error) {
+      await writeWarn(params.failureLog, {
+        ...meta,
+        error: errorToString(error)
+      });
+      return false;
+    }
+  };
+
   const deleteFromSourceIfPossible = async (reason: string): Promise<boolean> => {
     if (!env.DELETE_SOURCE_MESSAGE_IF_ADMIN || !actions.deleteFromSource) {
       return false;
@@ -1262,17 +1297,15 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     try {
       await actions.deleteFromSource();
       await writeInfo("Source message deleted", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
+        ...sourceMessageMeta,
         reason
       });
       return true;
     } catch (deleteError) {
       await writeWarn("Failed to delete source message", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
+        ...sourceMessageMeta,
         reason,
-        error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+        error: errorToString(deleteError)
       });
       return false;
     }
@@ -1325,78 +1358,39 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
 
     if (shouldWarnDriverAdSender && !payload.isStartupBackfill) {
       if (actions.notifySourceChat) {
-        try {
-          await actions.notifySourceChat(buildSourceDriverAdWarningMessage(senderDisplayName), { replyToSource: !driverAdDeletedFromSource });
-          await writeInfo("Driver ad source warning sent", {
-            sourceChatId: payload.sourceChatId,
-            sourceMessageId: payload.sourceMessageId,
-            senderId: payload.senderId,
-            senderDisplayName
-          });
-        } catch (driverAdSourceWarnError) {
-          await writeWarn("Failed to send driver ad source warning", {
-            sourceChatId: payload.sourceChatId,
-            sourceMessageId: payload.sourceMessageId,
-            senderId: payload.senderId,
-            senderDisplayName,
-            error: driverAdSourceWarnError instanceof Error ? driverAdSourceWarnError.message : String(driverAdSourceWarnError)
-          });
-        }
+        await notifySafely({
+          send: async () => actions.notifySourceChat!(buildSourceDriverAdWarningMessage(senderDisplayName), { replyToSource: !driverAdDeletedFromSource }),
+          successLog: "Driver ad source warning sent",
+          failureLog: "Failed to send driver ad source warning",
+          meta: senderMessageMeta
+        });
       }
 
       if (actions.notifyPassenger && !payload.senderId.startsWith("chat:")) {
-        try {
-          await actions.notifyPassenger(buildDriverAdMembershipRequiredPrivateMessage(senderDisplayName));
-          await writeInfo("Driver ad private warning sent", {
-            sourceChatId: payload.sourceChatId,
-            sourceMessageId: payload.sourceMessageId,
-            senderId: payload.senderId,
-            senderDisplayName
-          });
-        } catch (driverAdPrivateWarnError) {
-          await writeWarn("Failed to send driver ad private warning", {
-            sourceChatId: payload.sourceChatId,
-            sourceMessageId: payload.sourceMessageId,
-            senderId: payload.senderId,
-            senderDisplayName,
-            error: driverAdPrivateWarnError instanceof Error ? driverAdPrivateWarnError.message : String(driverAdPrivateWarnError)
-          });
-        }
+        await notifySafely({
+          send: async () => actions.notifyPassenger!(buildDriverAdMembershipRequiredPrivateMessage(senderDisplayName)),
+          successLog: "Driver ad private warning sent",
+          failureLog: "Failed to send driver ad private warning",
+          meta: senderMessageMeta
+        });
       }
     }
 
     if (shouldSendSourceFormatHint && actions.notifySourceChat && !payload.isStartupBackfill) {
-      try {
-        await actions.notifySourceChat(buildSourceFormatHintMessage());
-        await writeInfo("Source format hint sent", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId
-        });
-      } catch (sourceHintError) {
-        await writeWarn("Failed to send source format hint", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          error: sourceHintError instanceof Error ? sourceHintError.message : String(sourceHintError)
-        });
-      }
+      await notifySafely({
+        send: async () => actions.notifySourceChat!(buildSourceFormatHintMessage()),
+        successLog: "Source format hint sent",
+        failureLog: "Failed to send source format hint"
+      });
     }
 
     if (shouldSendPrivateFormatHint && actions.notifyPassenger && !payload.isStartupBackfill) {
-      try {
-        await actions.notifyPassenger(buildPrivateFormatHintMessage());
-        await writeInfo("Passenger private format hint sent", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId
-        });
-      } catch (privateHintError) {
-        await writeWarn("Failed to send passenger private format hint", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId,
-          error: privateHintError instanceof Error ? privateHintError.message : String(privateHintError)
-        });
-      }
+      await notifySafely({
+        send: async () => actions.notifyPassenger!(buildPrivateFormatHintMessage()),
+        successLog: "Passenger private format hint sent",
+        failureLog: "Failed to send passenger private format hint",
+        meta: { senderId: payload.senderId }
+      });
     }
 
     const shouldDeleteIgnoredMessage =
@@ -1523,7 +1517,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       });
     }
 
-    const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(phone) || Boolean(sendResult.forwardedContactVisible);
+    const isRealUserId = !payload.senderId.startsWith("chat:") && toPositiveUserId(payload.senderId) !== null;
+const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(phone) || Boolean(sendResult.forwardedContactVisible) || isRealUserId;
     if (
       env.SEND_PRIVATE_ACK_TO_PASSENGER &&
       actions.notifyPassenger &&
@@ -1539,21 +1534,12 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         fareMentions
       });
 
-      try {
-        await actions.notifyPassenger(passengerAck);
-        await writeInfo("Passenger private ack sent", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId
-        });
-      } catch (notifyError) {
-        await writeWarn("Passenger private ack failed", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId,
-          error: notifyError instanceof Error ? notifyError.message : String(notifyError)
-        });
-      }
+      await notifySafely({
+        send: async () => actions.notifyPassenger!(passengerAck),
+        successLog: "Passenger private ack sent",
+        failureLog: "Passenger private ack failed",
+        meta: { senderId: payload.senderId }
+      });
     }
 
     if (
@@ -1562,21 +1548,12 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       !payload.senderId.startsWith("chat:") &&
       !canDriversContactPassenger
     ) {
-      try {
-        await actions.notifyPassenger(buildPrivateForwardSecretHintMessage());
-        await writeInfo("Passenger private contact hint sent (forward hidden)", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId
-        });
-      } catch (notifyContactHintError) {
-        await writeWarn("Passenger private contact hint failed", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId,
-          error: notifyContactHintError instanceof Error ? notifyContactHintError.message : String(notifyContactHintError)
-        });
-      }
+      await notifySafely({
+        send: async () => actions.notifyPassenger!(buildPrivateForwardSecretHintMessage()),
+        successLog: "Passenger private contact hint sent (forward hidden)",
+        failureLog: "Passenger private contact hint failed",
+        meta: { senderId: payload.senderId }
+      });
     }
 
     if (env.SEND_PRIVATE_ACK_TO_PASSENGER && !canDriversContactPassenger) {
@@ -1588,26 +1565,17 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     }
 
     if (actions.notifySourceChat && !payload.isStartupBackfill) {
-      try {
-        await actions.notifySourceChat(buildSourcePassengerAckMessage(senderDisplayName), { replyToSource: !sourceDeletedFromSource });
-        await writeInfo("Passenger source ack sent", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId,
-          senderDisplayName,
+      await notifySafely({
+        send: async () => actions.notifySourceChat!(buildSourcePassengerAckMessage(senderDisplayName), { replyToSource: !sourceDeletedFromSource }),
+        successLog: "Passenger source ack sent",
+        failureLog: "Passenger source ack failed",
+        meta: {
+          ...senderMessageMeta,
           isProtectedFromDeletion,
           isSourceAdmin,
           isDriverChatMember
-        });
-      } catch (sourceAckError) {
-        await writeWarn("Passenger source ack failed", {
-          sourceChatId: payload.sourceChatId,
-          sourceMessageId: payload.sourceMessageId,
-          senderId: payload.senderId,
-          senderDisplayName,
-          error: sourceAckError instanceof Error ? sourceAckError.message : String(sourceAckError)
-        });
-      }
+        }
+      });
     }
 
     if (!sendResult.forwardedOriginal) {
@@ -1638,6 +1606,87 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
 
     return { processed: false, reason: "Send failed" };
   }
+}
+
+function getTelegramPhoneDigits(text: string): string | null {
+  const phone = extractPhone(text);
+  if (!phone) {
+    return null;
+  }
+
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("998")) {
+    return digits;
+  }
+
+  return null;
+}
+
+interface TelegramContactCandidate {
+  type: "username" | "phone" | "sender_id";
+  url: string;
+}
+
+function addUniqueTelegramContactCandidate(
+  candidates: TelegramContactCandidate[],
+  candidate: TelegramContactCandidate | null
+): void {
+  if (!candidate || candidates.some((item) => item.url === candidate.url)) {
+    return;
+  }
+
+  candidates.push(candidate);
+}
+
+function buildTelegramUserContactCandidates(ctx: Context, text: string): TelegramContactCandidate[] {
+  const candidates: TelegramContactCandidate[] = [];
+  const username = ctx.from?.username?.trim().replace(/^@/, "");
+  if (username) {
+    addUniqueTelegramContactCandidate(candidates, {
+      type: "username",
+      url: `https://t.me/${username}`
+    });
+  }
+
+  const phoneDigits = getTelegramPhoneDigits(text);
+  if (phoneDigits) {
+    addUniqueTelegramContactCandidate(candidates, {
+      type: "phone",
+      url: `tg://resolve?phone=${phoneDigits}`
+    });
+  }
+
+  if (ctx.from?.id !== undefined) {
+    addUniqueTelegramContactCandidate(candidates, {
+      type: "sender_id",
+      url: `tg://user?id=${ctx.from.id}`
+    });
+  }
+
+  return candidates;
+}
+
+function buildTelegramContactReplyMarkup(candidate: TelegramContactCandidate): Record<string, unknown> {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "🚕 MIJOZGA YOZISH",
+          url: candidate.url
+        }
+      ]
+    ]
+  };
+}
+
+function isPassengerContactButtonError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("BUTTON_USER_INVALID") ||
+    message.includes("BUTTON_URL_INVALID") ||
+    message.includes("BUTTON_TYPE_INVALID") ||
+    message.includes("unsupported URL protocol")
+  );
 }
 
 export async function processIncomingMessage(ctx: Context): Promise<ProcessMessageResult> {
@@ -1713,33 +1762,50 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
 
   const actions: UnifiedMessageActions = {
     sendToDriver: async (formattedText, _originalText) => {
-      const summaryMessage = await ctx.api.sendMessage(driverChatId, formattedText);
+      const contactCandidates = buildTelegramUserContactCandidates(ctx, _originalText);
+      let summaryMessage: { message_id: number } | null = null;
+
+      for (const contactCandidate of contactCandidates) {
+        try {
+          summaryMessage = await ctx.api.sendMessage(driverChatId, formattedText, {
+            reply_markup: buildTelegramContactReplyMarkup(contactCandidate)
+          } as any);
+          break;
+        } catch (error) {
+          if (!isPassengerContactButtonError(error)) {
+            throw error;
+          }
+
+          await writeWarn("Passenger contact button candidate invalid, trying next fallback", {
+            sourceChatId: String(ctx.chat!.id),
+            sourceMessageId: msg.message_id,
+            senderId,
+            senderUsername: ctx.from?.username ?? null,
+            contactType: contactCandidate.type,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      if (!summaryMessage) {
+        if (contactCandidates.length > 0) {
+          await writeWarn("Passenger contact buttons invalid, retrying driver lead without button", {
+            sourceChatId: String(ctx.chat!.id),
+            sourceMessageId: msg.message_id,
+            senderId,
+            senderUsername: ctx.from?.username ?? null,
+            triedContactTypes: contactCandidates.map((candidate) => candidate.type)
+          });
+        }
+
+        summaryMessage = await ctx.api.sendMessage(driverChatId, formattedText);
+      }
+
       return {
         driverMessageId: summaryMessage.message_id,
         forwardedOriginal: true,
         forwardedContactVisible: false
       };
-    },
-    notifyPassenger: async (textToPassenger) => {
-      if (!ctx.from?.id) {
-        return;
-      }
-
-      await ctx.api.sendMessage(ctx.from.id, textToPassenger);
-    },
-    notifySourceChat: async (textToSourceChat, options) => {
-      const replyToSource = options?.replyToSource ?? true;
-      await ctx.api.sendMessage(
-        ctx.chat!.id,
-        textToSourceChat,
-        replyToSource
-          ? ({
-              reply_parameters: {
-                message_id: msg.message_id
-              }
-            } as any)
-          : undefined
-      );
     },
     deleteFromSource: async () => {
       await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);
@@ -1904,9 +1970,4 @@ export async function getLastLeads(limit = 10): Promise<
     };
   });
 }
-
-
-
-
-
 
