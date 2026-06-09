@@ -156,6 +156,8 @@ const envSchema = z.object({
   DELETE_SOURCE_MESSAGE_IF_ADMIN: optionalBooleanSchema,
   DELETE_IGNORED_MESSAGE_IF_ADMIN: optionalBooleanSchema,
   SEND_PRIVATE_ACK_TO_PASSENGER: optionalBooleanSchema,
+  PASSENGER_GROUP_AUTO_REPLIES: optionalBooleanSchema,
+  SEND_DRIVER_AD_WARNINGS: optionalBooleanSchema,
   LISTENER_BACKFILL_SECONDS: optionalNumberSchema,
   LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
   LISTENER_PERIODIC_CATCH_UP_ENABLED: optionalBooleanSchema,
@@ -411,6 +413,8 @@ const listenerPeriodicCatchUpLimit = listenerPeriodicCatchUpEnabled
 const listenerProcessOutgoingMessages = parsed.data.LISTENER_PROCESS_OUTGOING_MESSAGES ?? false;
 const outboundMinDelayMs = Math.max(0, parsed.data.OUTBOUND_MIN_DELAY_MS ?? 0);
 const outboundJitterMs = Math.max(0, parsed.data.OUTBOUND_JITTER_MS ?? 0);
+const passengerGroupAutoReplies = parsed.data.PASSENGER_GROUP_AUTO_REPLIES ?? false;
+const sendDriverAdWarnings = parsed.data.SEND_DRIVER_AD_WARNINGS ?? false;
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
@@ -498,6 +502,8 @@ export const env = {
   DELETE_SOURCE_MESSAGE_IF_ADMIN: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN ?? true,
   DELETE_IGNORED_MESSAGE_IF_ADMIN: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN ?? true,
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
+  PASSENGER_GROUP_AUTO_REPLIES: passengerGroupAutoReplies,
+  SEND_DRIVER_AD_WARNINGS: sendDriverAdWarnings,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
   LISTENER_PERIODIC_CATCH_UP_ENABLED: listenerPeriodicCatchUpEnabled,

@@ -382,6 +382,10 @@ function isPassengerSourceChatId(chatId: number): boolean {
   return getSourceRegionByPassengerChatId(chatId) !== null;
 }
 
+function shouldSkipPassengerGroupWrite(chatId: number): boolean {
+  return !env.PASSENGER_GROUP_AUTO_REPLIES && isPassengerSourceChatId(chatId);
+}
+
 async function resolveBotApiChatId(event: NewMessageEvent): Promise<number | null> {
   const peerId = event.message.peerId;
   if (peerId) {
@@ -420,6 +424,10 @@ async function replyToEvent(
       return;
     }
 
+    if (shouldSkipPassengerGroupWrite(chatId)) {
+      return;
+    }
+
     try {
       const sent = await sendTelegramBotMessage(chatId, text, { replyToMessageId: event.message.id });
       if (!sent) {
@@ -443,6 +451,10 @@ async function replyToEvent(
   if (guardUserbotChannelWrite) {
     const chatId = await resolveBotApiChatId(event);
     if (chatId !== null && chatId < 0) {
+      if (shouldSkipPassengerGroupWrite(chatId)) {
+        return;
+      }
+
       const allowed = await guardUserbotChannelWrite(chatId, "admin_command_reply");
       if (!allowed) {
         return;
@@ -1425,6 +1437,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         );
       },
       notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
+        if (shouldSkipPassengerGroupWrite(sourceChatIdNumber)) {
+          return;
+        }
+
         const messageOptions: Record<string, unknown> = {
           message: text
         };
@@ -1855,6 +1871,16 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     });
   }
 
+  for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
+    const canWrite = await resolveUserbotWriteCapability(sourceChatIdNumber);
+    await writeInfo("Passenger source write permission", {
+      sourceChatId: String(sourceChatIdNumber),
+      region: getSourceRegionByPassengerChatId(sourceChatIdNumber),
+      canWriteAsAdmin: canWrite,
+      autoRepliesEnabled: env.PASSENGER_GROUP_AUTO_REPLIES
+    });
+  }
+
   await writeInfo("Userbot listener started", {
     sourceChats: env.PASSENGER_CHAT_IDS,
     passengerByRegion: env.PASSENGER_CHAT_IDS_BY_REGION,
@@ -1866,6 +1892,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     startupBackfillLimit,
     periodicCatchUpEnabled,
     periodicCatchUpLimit,
+    passengerGroupAutoReplies: env.PASSENGER_GROUP_AUTO_REPLIES,
+    sendDriverAdWarnings: env.SEND_DRIVER_AD_WARNINGS,
     passengerChannelWrites: "admin_only",
     adminId: env.ADMIN_TELEGRAM_ID
   });

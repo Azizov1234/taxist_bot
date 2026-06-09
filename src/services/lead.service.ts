@@ -1393,7 +1393,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     });
 
     const driverAdDeletedFromSource = isDriverAd ? await deleteFromSourceIfPossible(ignoreReason) : false;
-    const shouldWarnDriverAdSender = isDriverAd && !isDriverChatMember;
+    const shouldWarnDriverAdSender = env.SEND_DRIVER_AD_WARNINGS && isDriverAd && !isDriverChatMember;
 
     if (shouldWarnDriverAdSender && !payload.isStartupBackfill) {
       if (actions.notifySourceChat) {
