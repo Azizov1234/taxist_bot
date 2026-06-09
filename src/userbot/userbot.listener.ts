@@ -36,6 +36,7 @@ import {
 import { sendDriverLeadViaBotBridge } from "../services/driverDelivery.service.js";
 import { writeError, writeInfo, writeWarn } from "../services/logger.service.js";
 import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
+import { shouldBlockPassengerGroupWrite } from "../utils/passengerGroupWrite.js";
 
 interface ListenerState {
   paused: boolean;
@@ -382,10 +383,6 @@ function isPassengerSourceChatId(chatId: number): boolean {
   return getSourceRegionByPassengerChatId(chatId) !== null;
 }
 
-function shouldSkipPassengerGroupWrite(chatId: number): boolean {
-  return !env.PASSENGER_GROUP_AUTO_REPLIES && isPassengerSourceChatId(chatId);
-}
-
 async function resolveBotApiChatId(event: NewMessageEvent): Promise<number | null> {
   const peerId = event.message.peerId;
   if (peerId) {
@@ -417,14 +414,14 @@ async function replyToEvent(
     return;
   }
 
+  const chatId = await resolveBotApiChatId(event);
+  if (chatId !== null && shouldBlockPassengerGroupWrite(chatId)) {
+    return;
+  }
+
   if (env.ADMIN_COMMAND_REPLY_MODE === "bot") {
-    const chatId = await resolveBotApiChatId(event);
     if (chatId === null) {
       await writeWarn("Admin command reply skipped: could not resolve Bot API chat id");
-      return;
-    }
-
-    if (shouldSkipPassengerGroupWrite(chatId)) {
       return;
     }
 
@@ -448,17 +445,10 @@ async function replyToEvent(
     return;
   }
 
-  if (guardUserbotChannelWrite) {
-    const chatId = await resolveBotApiChatId(event);
-    if (chatId !== null && chatId < 0) {
-      if (shouldSkipPassengerGroupWrite(chatId)) {
-        return;
-      }
-
-      const allowed = await guardUserbotChannelWrite(chatId, "admin_command_reply");
-      if (!allowed) {
-        return;
-      }
+  if (guardUserbotChannelWrite && chatId !== null && chatId < 0) {
+    const allowed = await guardUserbotChannelWrite(chatId, "admin_command_reply");
+    if (!allowed) {
+      return;
     }
   }
 
@@ -1225,6 +1215,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     messageOptions: Record<string, unknown>,
     meta?: Record<string, unknown>
   ): Promise<boolean> => {
+    if (shouldBlockPassengerGroupWrite(chatIdNumber)) {
+      return false;
+    }
+
     if (!(await guardUserbotChannelWrite(chatIdNumber, operation, meta))) {
       return false;
     }
@@ -1437,7 +1431,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         );
       },
       notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
-        if (shouldSkipPassengerGroupWrite(sourceChatIdNumber)) {
+        if (shouldBlockPassengerGroupWrite(sourceChatIdNumber)) {
           return;
         }
 

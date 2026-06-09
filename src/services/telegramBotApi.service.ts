@@ -1,4 +1,6 @@
 import { env } from "../config/env.js";
+import { shouldBlockPassengerGroupWrite, toNumericChatId } from "../utils/passengerGroupWrite.js";
+import { writeInfo } from "./logger.service.js";
 
 export interface SendTelegramBotMessageOptions {
   replyToMessageId?: number;
@@ -15,6 +17,14 @@ export async function sendTelegramBotMessage(
   options: SendTelegramBotMessageOptions = {}
 ): Promise<SentTelegramBotMessage | null> {
   if (!env.TELEGRAM_BOT_TOKEN) {
+    return null;
+  }
+
+  const numericChatId = toNumericChatId(chatId);
+  if (numericChatId !== null && shouldBlockPassengerGroupWrite(numericChatId)) {
+    await writeInfo("Bot API write skipped: passenger group auto-replies disabled", {
+      chatId: numericChatId
+    });
     return null;
   }
 
