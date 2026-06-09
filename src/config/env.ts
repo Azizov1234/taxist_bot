@@ -161,6 +161,10 @@ const envSchema = z.object({
   LISTENER_PERIODIC_CATCH_UP_ENABLED: optionalBooleanSchema,
   LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: optionalNumberSchema,
   LISTENER_PERIODIC_CATCH_UP_LIMIT: optionalNumberSchema,
+  LISTENER_PROCESS_OUTGOING_MESSAGES: optionalBooleanSchema,
+  OUTBOUND_MIN_DELAY_MS: optionalNumberSchema,
+  OUTBOUND_JITTER_MS: optionalNumberSchema,
+  WRITE_TO_PASSENGER_CHANNELS: optionalBooleanSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
   DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
@@ -401,8 +405,14 @@ const duplicateWindowMinutes = parsed.data.DUPLICATE_WINDOW_MINUTES ?? 5;
 const listenerBackfillSeconds = parsed.data.LISTENER_BACKFILL_SECONDS ?? 180;
 const listenerStartupBackfillLimit = parsed.data.LISTENER_STARTUP_BACKFILL_LIMIT ?? 20;
 const listenerPeriodicCatchUpIntervalMs = parsed.data.LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS ?? 30_000;
-const listenerPeriodicCatchUpLimit =
-  parsed.data.LISTENER_PERIODIC_CATCH_UP_LIMIT ?? Math.max(50, listenerStartupBackfillLimit * 4);
+const listenerPeriodicCatchUpEnabled = parsed.data.LISTENER_PERIODIC_CATCH_UP_ENABLED ?? false;
+const listenerPeriodicCatchUpLimit = listenerPeriodicCatchUpEnabled
+  ? (parsed.data.LISTENER_PERIODIC_CATCH_UP_LIMIT ?? Math.max(50, listenerStartupBackfillLimit * 4))
+  : 0;
+const listenerProcessOutgoingMessages = parsed.data.LISTENER_PROCESS_OUTGOING_MESSAGES ?? false;
+const writeToPassengerChannels = parsed.data.WRITE_TO_PASSENGER_CHANNELS ?? false;
+const outboundMinDelayMs = Math.max(0, parsed.data.OUTBOUND_MIN_DELAY_MS ?? 0);
+const outboundJitterMs = Math.max(0, parsed.data.OUTBOUND_JITTER_MS ?? 0);
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
 const aiConfiguredProviders = providerOrder.filter((provider) => hasProviderCredentials(provider));
 const aiHasConfiguredProvider = aiConfiguredProviders.length > 0;
@@ -421,6 +431,8 @@ requireConfig(
   "LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS must be greater than 0"
 );
 requireConfig(listenerPeriodicCatchUpLimit >= 0, "LISTENER_PERIODIC_CATCH_UP_LIMIT must be 0 or greater");
+requireConfig(outboundMinDelayMs >= 0, "OUTBOUND_MIN_DELAY_MS must be 0 or greater");
+requireConfig(outboundJitterMs >= 0, "OUTBOUND_JITTER_MS must be 0 or greater");
 requireConfig(providerOrder.length > 0, "AI_PROVIDER_ORDER must include at least one valid provider");
 
 export const env = {
@@ -490,9 +502,13 @@ export const env = {
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
-  LISTENER_PERIODIC_CATCH_UP_ENABLED: parsed.data.LISTENER_PERIODIC_CATCH_UP_ENABLED ?? true,
+  LISTENER_PERIODIC_CATCH_UP_ENABLED: listenerPeriodicCatchUpEnabled,
   LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: Math.round(listenerPeriodicCatchUpIntervalMs),
   LISTENER_PERIODIC_CATCH_UP_LIMIT: Math.round(listenerPeriodicCatchUpLimit),
+  LISTENER_PROCESS_OUTGOING_MESSAGES: listenerProcessOutgoingMessages,
+  OUTBOUND_MIN_DELAY_MS: Math.round(outboundMinDelayMs),
+  OUTBOUND_JITTER_MS: Math.round(outboundJitterMs),
+  WRITE_TO_PASSENGER_CHANNELS: writeToPassengerChannels,
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
   DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)

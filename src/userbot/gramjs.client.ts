@@ -109,15 +109,21 @@ function normalizePhoneNumber(raw: string): string | null {
     digitsOnly = digitsOnly.slice(2);
   }
 
+  // Uzbekistan local: 901234567 -> +998901234567
   if (digitsOnly.length === 9) {
     digitsOnly = `998${digitsOnly}`;
   }
 
-  if (!digitsOnly.startsWith("998")) {
+  // US/Canada local: 3212093589 -> +13212093589
+  if (digitsOnly.length === 10) {
+    digitsOnly = `1${digitsOnly}`;
+  }
+
+  if (digitsOnly.length < 8 || digitsOnly.length > 15) {
     return null;
   }
 
-  if (digitsOnly.length !== 12) {
+  if (digitsOnly.startsWith("0")) {
     return null;
   }
 
@@ -125,7 +131,7 @@ function normalizePhoneNumber(raw: string): string | null {
 }
 
 function isValidPhoneNumber(value: string): boolean {
-  return /^\+998\d{9}$/.test(value);
+  return /^\+[1-9]\d{7,14}$/.test(value);
 }
 
 function parseFloodWaitSeconds(message: string): number | null {
@@ -201,7 +207,7 @@ function buildInteractiveLoginErrorMessage(message: string): string | null {
   }
 
   if (upperMessage.includes("PHONE_NUMBER_INVALID")) {
-    return "Phone number is invalid. Use Uzbekistan format: +998XXXXXXXXX or 9 local digits.";
+    return "Phone number is invalid. Use international format, e.g. +998901234567 or +13212093589.";
   }
 
   if (upperMessage.includes("SEND_CODE_UNAVAILABLE")) {
@@ -262,11 +268,11 @@ async function startInteractive(client: TelegramClient): Promise<void> {
       }
 
       while (true) {
-        const input = await askUser("Telegram phone number (+998... or 9 digits): ");
+        const input = await askUser("Telegram phone number (e.g. +998... or +1...): ");
         const normalized = normalizePhoneNumber(input);
 
         if (!normalized || !isValidPhoneNumber(normalized)) {
-          console.log("Invalid phone format. Use +998901234567 or only 9 local digits (e.g. 901234567).");
+          console.log("Invalid phone format. Examples: +998901234567, 901234567, +13212093589, 3212093589.");
           continue;
         }
 

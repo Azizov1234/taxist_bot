@@ -980,8 +980,33 @@ async function updateLeadStatus(params: {
   });
 }
 
+const INBOUND_MESSAGE_LOG_MAX_WORDS = 20;
+
+export function buildInboundMessageLogFields(
+  text: string,
+  maxWords: number = INBOUND_MESSAGE_LOG_MAX_WORDS
+): {
+  messageText: string;
+  messageWordCount: number;
+  messageTruncated: boolean;
+} {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  if (normalized.length === 0) {
+    return { messageText: "", messageWordCount: 0, messageTruncated: false };
+  }
+
+  const words = normalized.split(/\s+/u);
+  const messageWordCount = words.length;
+  const messageTruncated = messageWordCount > maxWords;
+  const messageText = messageTruncated ? `${words.slice(0, maxWords).join(" ")}…` : normalized;
+
+  return { messageText, messageWordCount, messageTruncated };
+}
+
 export async function processIncomingLead(payload: UnifiedIncomingMessage, actions: UnifiedMessageActions): Promise<ProcessMessageResult> {
   const originalText = stripExtraPunctuation(payload.text);
+  const messageLogFields = buildInboundMessageLogFields(originalText);
+
   if (originalText.length === 0) {
     return { processed: false, reason: "No text/caption in message" };
   }
@@ -1024,11 +1049,13 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
         where: { id: existingByMessage.id }
       });
     } else {
-      await writeInfo("Duplicate source message skipped", {
+      await writeWarn("Lead skipped", {
         sourceChatId: payload.sourceChatId,
         sourceMessageId: payload.sourceMessageId,
         existingLeadId: existingByMessage.id,
-        existingStatus: existingByMessage.status
+        existingStatus: existingByMessage.status,
+        skipReason: "Duplicate source message",
+        ...messageLogFields
       });
 
       return { processed: false, reason: "Duplicate source message" };
@@ -1075,12 +1102,23 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
           : `Duplicate sender/text in ${env.DUPLICATE_WINDOW_MINUTES} minutes`
     });
 
+    const duplicateReason =
+      targetDriverChatId !== null
+        ? `Duplicate sender/text window (driver=${targetDriverChatId})`
+        : "Duplicate sender/text window";
+
+    await writeWarn("Lead skipped", {
+      sourceChatId: payload.sourceChatId,
+      sourceMessageId: payload.sourceMessageId,
+      senderId: payload.senderId,
+      skipReason: duplicateReason,
+      duplicateWindowMinutes: env.DUPLICATE_WINDOW_MINUTES,
+      ...messageLogFields
+    });
+
     return {
       processed: false,
-      reason:
-        targetDriverChatId !== null
-          ? `Duplicate sender/text window (driver=${targetDriverChatId})`
-          : "Duplicate sender/text window"
+      reason: duplicateReason
     };
   }
 
@@ -1221,6 +1259,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
   await writeInfo("Message classification", {
     sourceChatId: payload.sourceChatId,
     sourceMessageId: payload.sourceMessageId,
+    ...messageLogFields,
     provider: classification.provider,
     category: classification.category,
     confidence: classification.confidence,
@@ -1413,38 +1452,72 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       await deleteFromSourceIfPossible(ignoreReason);
     }
 
+    const classifierSkipReason = `Skipped by classifier (${classification.provider}, score=${keywordResult.score})`;
+
+    await writeWarn("Lead skipped", {
+      sourceChatId: payload.sourceChatId,
+      sourceMessageId: payload.sourceMessageId,
+      senderId: payload.senderId,
+      senderDisplayName: senderDisplayName,
+      skipReason: classifierSkipReason,
+      ignoreReason,
+      category: classification.category,
+      provider: classification.provider,
+      keywordScore: keywordResult.score,
+      shouldSend,
+      isDriverAd,
+      isCargo,
+      isSpam,
+      ...messageLogFields
+    });
+
     return {
       processed: false,
-      reason: `Skipped by classifier (${classification.provider}, score=${keywordResult.score})`
+      reason: classifierSkipReason
     };
   }
 
-  const createdLead = await prisma.lead.create({
-    data: {
-      sourceChatId: payload.sourceChatId,
-      sourceMessageId: payload.sourceMessageId,
-      sourceChatTitle: payload.sourceChatTitle,
-      senderId: payload.senderId,
-      senderFullName: payload.senderFullName,
-      senderUsername: payload.senderUsername,
-      userId: payload.senderId,
-      fullName: payload.senderFullName,
-      username: payload.senderUsername,
-      phone,
-      originalText,
-      normalizedText: classification.normalizedText,
-      fromLocation,
-      toLocation,
-      passengerCount,
-      timeHint,
-      confidence: classification.confidence,
-      isDriverAd,
-      isSpam,
-      targetDriverChatId: targetDriverChatIdBigInt,
-      detectedRoute: routeFromRules,
-      status: LeadStatus.NEW
+  let createdLead: { id: number };
+  try {
+    createdLead = await prisma.lead.create({
+      data: {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        sourceChatTitle: payload.sourceChatTitle,
+        senderId: payload.senderId,
+        senderFullName: payload.senderFullName,
+        senderUsername: payload.senderUsername,
+        userId: payload.senderId,
+        fullName: payload.senderFullName,
+        username: payload.senderUsername,
+        phone,
+        originalText,
+        normalizedText: classification.normalizedText,
+        fromLocation,
+        toLocation,
+        passengerCount,
+        timeHint,
+        confidence: classification.confidence,
+        isDriverAd,
+        isSpam,
+        targetDriverChatId: targetDriverChatIdBigInt,
+        detectedRoute: routeFromRules,
+        status: LeadStatus.NEW
+      }
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      await writeWarn("Lead skipped", {
+        sourceChatId: payload.sourceChatId,
+        sourceMessageId: payload.sourceMessageId,
+        skipReason: "Duplicate source message (race)",
+        ...messageLogFields
+      });
+      return { processed: false, reason: "Duplicate source message" };
     }
-  });
+
+    throw error;
+  }
 
   try {
     const messageTime = formatMessageDate(payload.messageDate);
@@ -1582,9 +1655,26 @@ const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(ph
       await writeWarn("Original source message could not be forwarded, link/text fallback was sent", {
         sourceChatId: payload.sourceChatId,
         sourceMessageId: payload.sourceMessageId,
-        leadId: createdLead.id
+        leadId: createdLead.id,
+        ...messageLogFields
       });
     }
+
+    await writeInfo("Lead sent to driver", {
+      sourceChatId: payload.sourceChatId,
+      sourceMessageId: payload.sourceMessageId,
+      senderId: payload.senderId,
+      senderDisplayName,
+      leadId: createdLead.id,
+      driverMessageId,
+      driverChatId: targetDriverChatId,
+      category: classification.category,
+      provider: classification.provider,
+      keywordScore: keywordResult.score,
+      forwardedOriginal: sendResult.forwardedOriginal,
+      sourceDeletedFromSource,
+      ...messageLogFields
+    });
 
     if (sendResult.forwardedOriginal) {
       return sourceDeleteReason ? { processed: true, reason: sourceDeleteReason } : { processed: true };
@@ -1595,7 +1685,8 @@ const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(ph
     await writeError("Failed to send lead to driver chat", error, {
       leadId: createdLead.id,
       sourceChatId: payload.sourceChatId,
-      sourceMessageId: payload.sourceMessageId
+      sourceMessageId: payload.sourceMessageId,
+      ...messageLogFields
     });
 
     await updateLeadStatus({
