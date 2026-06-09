@@ -164,7 +164,6 @@ const envSchema = z.object({
   LISTENER_PROCESS_OUTGOING_MESSAGES: optionalBooleanSchema,
   OUTBOUND_MIN_DELAY_MS: optionalNumberSchema,
   OUTBOUND_JITTER_MS: optionalNumberSchema,
-  WRITE_TO_PASSENGER_CHANNELS: optionalBooleanSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
   SEND_FORMATTED_MESSAGE: optionalBooleanSchema,
   DUPLICATE_WINDOW_MINUTES: optionalNumberSchema
@@ -410,7 +409,6 @@ const listenerPeriodicCatchUpLimit = listenerPeriodicCatchUpEnabled
   ? (parsed.data.LISTENER_PERIODIC_CATCH_UP_LIMIT ?? Math.max(50, listenerStartupBackfillLimit * 4))
   : 0;
 const listenerProcessOutgoingMessages = parsed.data.LISTENER_PROCESS_OUTGOING_MESSAGES ?? false;
-const writeToPassengerChannels = parsed.data.WRITE_TO_PASSENGER_CHANNELS ?? false;
 const outboundMinDelayMs = Math.max(0, parsed.data.OUTBOUND_MIN_DELAY_MS ?? 0);
 const outboundJitterMs = Math.max(0, parsed.data.OUTBOUND_JITTER_MS ?? 0);
 const providerOrder = parseProviderOrder(parsed.data.AI_PROVIDER_ORDER);
@@ -508,7 +506,6 @@ export const env = {
   LISTENER_PROCESS_OUTGOING_MESSAGES: listenerProcessOutgoingMessages,
   OUTBOUND_MIN_DELAY_MS: Math.round(outboundMinDelayMs),
   OUTBOUND_JITTER_MS: Math.round(outboundJitterMs),
-  WRITE_TO_PASSENGER_CHANNELS: writeToPassengerChannels,
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,
   SEND_FORMATTED_MESSAGE: parsed.data.SEND_FORMATTED_MESSAGE ?? true,
   DUPLICATE_WINDOW_MINUTES: Math.round(duplicateWindowMinutes)

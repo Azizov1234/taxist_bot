@@ -443,10 +443,6 @@ async function replyToEvent(
   if (guardUserbotChannelWrite) {
     const chatId = await resolveBotApiChatId(event);
     if (chatId !== null && chatId < 0) {
-      if (!env.WRITE_TO_PASSENGER_CHANNELS && isPassengerSourceChatId(chatId)) {
-        return;
-      }
-
       const allowed = await guardUserbotChannelWrite(chatId, "admin_command_reply");
       if (!allowed) {
         return;
@@ -1158,27 +1154,28 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
     let canWrite = false;
     try {
-      const entity = await client.getEntity(chatIdNumber);
-      canWrite = canPostMessagesInChat(entity);
-    } catch (error) {
-      await writeWarn("Failed to resolve userbot write permission via entity", {
-        chatId: String(chatIdNumber),
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-
-    if (!canWrite) {
+      const me = await client.getMe();
+      const participantResult = await client.invoke(
+        new Api.channels.GetParticipant({
+          channel: chatIdNumber,
+          participant: Number(me.id)
+        })
+      );
+      canWrite = canPostMessagesFromParticipant(participantResult.participant);
+    } catch (participantError) {
       try {
-        const me = await client.getMe();
-        const participantResult = await client.invoke(
-          new Api.channels.GetParticipant({
-            channel: chatIdNumber,
-            participant: Number(me.id)
-          })
-        );
-        canWrite = canPostMessagesFromParticipant(participantResult.participant);
-      } catch {
-        // Not a channel/supergroup or userbot is not a member.
+        const entity = await client.getEntity(chatIdNumber);
+        canWrite = canPostMessagesInChat(entity);
+      } catch (entityError) {
+        const accessError = participantError ?? entityError;
+        if (isChannelAccessError(accessError)) {
+          await markSourceChatUnreachable(chatIdNumber, "write_permission", accessError);
+        }
+
+        await writeWarn("Failed to resolve userbot write permission", {
+          chatId: String(chatIdNumber),
+          error: accessError instanceof Error ? accessError.message : String(accessError)
+        });
       }
     }
 
@@ -1201,11 +1198,27 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       await writeWarn("Userbot channel write skipped: userbot is not admin", {
         chatId: String(chatIdNumber),
         operation,
+        isPassengerSource: isPassengerSourceChatId(chatIdNumber),
+        isDriverChat: isDriverChatId(chatIdNumber),
         ...meta
       });
     }
 
     return allowed;
+  };
+
+  const sendUserbotChannelMessage = async (
+    chatIdNumber: number,
+    operation: string,
+    messageOptions: Record<string, unknown>,
+    meta?: Record<string, unknown>
+  ): Promise<boolean> => {
+    if (!(await guardUserbotChannelWrite(chatIdNumber, operation, meta))) {
+      return false;
+    }
+
+    await runThrottledTelegramWrite(operation, async () => client.sendMessage(chatIdNumber, messageOptions));
+    return true;
   };
 
   const resolveSenderProtectionFlags = async (
@@ -1411,34 +1424,31 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           })
         );
       },
-      ...(env.WRITE_TO_PASSENGER_CHANNELS
-        ? {
-            notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
-              if (!(await guardUserbotChannelWrite(sourceChatIdNumber, "notify_source_chat", {
-                sourceChatId: payload.sourceChatId,
-                sourceMessageId: payload.sourceMessageId
-              }))) {
-                return;
-              }
+      notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
+        const messageOptions: Record<string, unknown> = {
+          message: text
+        };
 
-              const messageOptions: Record<string, unknown> = {
-                message: text
-              };
+        if (options?.replyToSource) {
+          messageOptions.replyTo = payload.sourceMessageId;
+        }
 
-              if (options?.replyToSource) {
-                messageOptions.replyTo = payload.sourceMessageId;
-              }
-
-              await runThrottledTelegramWrite("notify_source_chat", async () =>
-                client.sendMessage(sourceChatIdNumber, messageOptions)
-              );
-            }
-          }
-        : {})
+        await sendUserbotChannelMessage(sourceChatIdNumber, "notify_source_chat", messageOptions, {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        });
+      }
     };
 
     if (canDeleteFromSource) {
       actions.deleteFromSource = async () => {
+        if (!(await guardUserbotChannelWrite(sourceChatIdNumber, "delete_source_message", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        }))) {
+          return;
+        }
+
         await runThrottledTelegramWrite("delete_source_message", async () =>
           client.deleteMessages(sourceChatIdNumber, [payload.sourceMessageId], {
             revoke: true
@@ -1856,7 +1866,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     startupBackfillLimit,
     periodicCatchUpEnabled,
     periodicCatchUpLimit,
-    writeToPassengerChannels: env.WRITE_TO_PASSENGER_CHANNELS,
+    passengerChannelWrites: "admin_only",
     adminId: env.ADMIN_TELEGRAM_ID
   });
 }
