@@ -59,7 +59,22 @@ export const PASSENGER_KEYWORDS_LATIN = [
   "shirindan gulistonga",
   "bekoboddan shiringa",
   "gulistonga ketish kerak",
-  "toshkentga borish kerak"
+  "toshkentga borish kerak",
+  "kamsamolga 1 kishi bor",
+  "kamsamoldan gulistonga taksi kerak",
+  "gulistondan kamsamolga 1 kishi bor",
+  "gulistonga 1 kishi bor",
+  "ketishim kere",
+  "srochna kerak",
+  "srochno kerak",
+  "taksi bormi",
+  "taksi kere",
+  "bosh moshin kerak",
+  "uydan opketish kerak",
+  "zaryadan shaharga taksi bormi",
+  "1kiwi bor",
+  "1kishi bor",
+  "hozrga"
 ] as const;
 
 export const PASSENGER_KEYWORDS_CYRILLIC = [
@@ -104,7 +119,16 @@ export const PASSENGER_KEYWORDS_CYRILLIC = [
   "шириндан гулистонга",
   "бекободдан ширинга",
   "гулистонга кетиш керак",
-  "тошкентга бориш керак"
+  "тошкентга бориш керак",
+  "камсамолга 1 киши бор",
+  "гулистондан камсамолга 1 киши бор",
+  "камсамолдан гулистонга 1 киши срочно",
+  "срочно",
+  "срочна",
+  "такси борми",
+  "такси кере",
+  "кетишим кере",
+  "уйдан опкетиш керак"
 ] as const;
 
 export const ROUTE_KEYWORDS = [

@@ -445,8 +445,21 @@ async function replyToEvent(
     return;
   }
 
-  if (guardUserbotChannelWrite && chatId !== null && chatId < 0) {
-    const allowed = await guardUserbotChannelWrite(chatId, "admin_command_reply");
+  let resolvedChatId = chatId;
+  if (resolvedChatId === null) {
+    try {
+      resolvedChatId = toNumberId(getPeerId(inputChat, true));
+    } catch {
+      resolvedChatId = null;
+    }
+  }
+
+  if (resolvedChatId !== null && shouldBlockPassengerGroupWrite(resolvedChatId)) {
+    return;
+  }
+
+  if (guardUserbotChannelWrite && resolvedChatId !== null && resolvedChatId < 0) {
+    const allowed = await guardUserbotChannelWrite(resolvedChatId, "admin_command_reply");
     if (!allowed) {
       return;
     }

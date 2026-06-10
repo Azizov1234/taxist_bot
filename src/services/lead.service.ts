@@ -1396,7 +1396,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     const shouldWarnDriverAdSender = env.SEND_DRIVER_AD_WARNINGS && isDriverAd && !isDriverChatMember;
 
     if (shouldWarnDriverAdSender && !payload.isStartupBackfill) {
-      if (actions.notifySourceChat) {
+      if (actions.notifySourceChat && env.PASSENGER_GROUP_AUTO_REPLIES) {
         await notifySafely({
           send: async () => actions.notifySourceChat!(buildSourceDriverAdWarningMessage(senderDisplayName), { replyToSource: !driverAdDeletedFromSource }),
           successLog: "Driver ad source warning sent",
@@ -1415,7 +1415,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
       }
     }
 
-    if (shouldSendSourceFormatHint && actions.notifySourceChat && !payload.isStartupBackfill) {
+    if (shouldSendSourceFormatHint && env.PASSENGER_GROUP_AUTO_REPLIES && actions.notifySourceChat && !payload.isStartupBackfill) {
       await notifySafely({
         send: async () => actions.notifySourceChat!(buildSourceFormatHintMessage()),
         successLog: "Source format hint sent",
@@ -1637,7 +1637,7 @@ const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(ph
       });
     }
 
-    if (actions.notifySourceChat && !payload.isStartupBackfill) {
+    if (env.PASSENGER_GROUP_AUTO_REPLIES && actions.notifySourceChat && !payload.isStartupBackfill) {
       await notifySafely({
         send: async () => actions.notifySourceChat!(buildSourcePassengerAckMessage(senderDisplayName), { replyToSource: !sourceDeletedFromSource }),
         successLog: "Passenger source ack sent",

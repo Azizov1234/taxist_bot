@@ -70,6 +70,8 @@ async function main(): Promise<void> {
   console.log(`Passenger usernames: ${env.PASSENGER_CHAT_USERNAMES.length}`);
   console.log(`Driver chat configured: ${env.DRIVER_CHAT_ID !== 0 ? "yes" : "no"}`);
   console.log(`Driver delivery mode: ${env.DRIVER_DELIVERY_MODE} (requested: ${env.DRIVER_DELIVERY_REQUESTED_MODE})`);
+  console.log(`Passenger group auto-replies: ${env.PASSENGER_GROUP_AUTO_REPLIES ? "ON (bot writes to passenger groups)" : "OFF (no writes to passenger groups)"}`);
+  console.log(`Driver channels (leads always go here): ${env.DRIVER_CHAT_IDS.join(", ")}`);
   console.log(`Admin configured: ${Boolean(env.ADMIN_TELEGRAM_ID) ? "yes" : "no"}`);
   console.log(`String session configured: ${env.TELEGRAM_STRING_SESSION.trim().length > 0 ? "yes" : "no"}`);
   console.log(`AI enabled: ${env.AI_ENABLED ? "yes" : "no"}`);
