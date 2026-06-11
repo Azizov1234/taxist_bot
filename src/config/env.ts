@@ -131,6 +131,8 @@ const envSchema = z.object({
   PASSENGER_HELP_GROUP_LINK: optionalStringSchema,
   DRIVER_PREMIUM_GROUP_LINK: optionalStringSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
+  ADMIN_TELEGRAM_IDS: optionalStringSchema,
+  ADMIN_TELEGRAM_USERNAMES: optionalStringSchema,
   LOG_CHANNEL_ID: optionalChatIdSchema,
   DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
   AI_ENABLED: optionalBooleanSchema,
@@ -157,6 +159,7 @@ const envSchema = z.object({
   DELETE_IGNORED_MESSAGE_IF_ADMIN: optionalBooleanSchema,
   SEND_PRIVATE_ACK_TO_PASSENGER: optionalBooleanSchema,
   PASSENGER_GROUP_AUTO_REPLIES: optionalBooleanSchema,
+  USERBOT_READ_ONLY: optionalBooleanSchema,
   SEND_DRIVER_AD_WARNINGS: optionalBooleanSchema,
   LISTENER_BACKFILL_SECONDS: optionalNumberSchema,
   LISTENER_STARTUP_BACKFILL_LIMIT: optionalNumberSchema,
@@ -359,7 +362,17 @@ if (driverChatId === undefined) {
   failConfig("DRIVER_CHAT_ID is required");
 }
 
-requireRuntimeConfig(parsed.data.ADMIN_TELEGRAM_ID !== undefined, "ADMIN_TELEGRAM_ID is required");
+const adminTelegramIds = [
+  ...new Set([
+    ...(parsed.data.ADMIN_TELEGRAM_ID !== undefined ? [parsed.data.ADMIN_TELEGRAM_ID] : []),
+    ...parseChatIdList(parsed.data.ADMIN_TELEGRAM_IDS)
+  ])
+];
+const adminTelegramUsernames = parseChatUsernameList(parsed.data.ADMIN_TELEGRAM_USERNAMES);
+
+requireRuntimeConfig(adminTelegramIds.length > 0 || adminTelegramUsernames.length > 0, "ADMIN_TELEGRAM_ID or ADMIN_TELEGRAM_USERNAMES is required");
+
+const primaryAdminTelegramId = adminTelegramIds[0];
 
 const runtimeMode = parsed.data.TELEGRAM_MODE ?? "userbot";
 const userbotEnabled = runtimeMode === "userbot" || runtimeMode === "both";
@@ -474,7 +487,9 @@ export const env = {
   DRIVER_CHAT_ID_BY_REGION: driverChatIdByRegion,
   PASSENGER_HELP_GROUP_LINK: parsed.data.PASSENGER_HELP_GROUP_LINK ?? null,
   DRIVER_PREMIUM_GROUP_LINK: parsed.data.DRIVER_PREMIUM_GROUP_LINK ?? null,
-  ADMIN_TELEGRAM_ID: parsed.data.ADMIN_TELEGRAM_ID,
+  ADMIN_TELEGRAM_ID: primaryAdminTelegramId,
+  ADMIN_TELEGRAM_IDS: adminTelegramIds,
+  ADMIN_TELEGRAM_USERNAMES: adminTelegramUsernames,
   LOG_CHANNEL_ID: parsed.data.LOG_CHANNEL_ID,
   DATABASE_URL: parsed.data.DATABASE_URL,
   AI_ENABLED: aiEnabled,
@@ -503,6 +518,7 @@ export const env = {
   DELETE_IGNORED_MESSAGE_IF_ADMIN: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN ?? true,
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
   PASSENGER_GROUP_AUTO_REPLIES: passengerGroupAutoReplies,
+  USERBOT_READ_ONLY: parsed.data.USERBOT_READ_ONLY ?? false,
   SEND_DRIVER_AD_WARNINGS: sendDriverAdWarnings,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
@@ -545,6 +561,24 @@ export function registerResolvedPassengerChat(chatId: number, region: SourceRegi
   passengerChatRegionById.set(chatId, region);
   pushUnique(passengerChatIdsByRegion[region], chatId);
   pushUnique(passengerChatIds, chatId);
+}
+
+export function registerResolvedPassengerChatUsername(username: string, region: SourceRegion): string {
+  const normalizedUsername = normalizeTelegramChatUsername(username);
+  if (!normalizedUsername) {
+    throw new Error(`Invalid passenger source username: ${username}`);
+  }
+
+  const existingRegion = passengerChatRegionByUsername.get(normalizedUsername);
+  if (existingRegion && existingRegion !== region) {
+    throw new Error(`Passenger source username ${normalizedUsername} resolved to ${region}, but already mapped to ${existingRegion}`);
+  }
+
+  passengerChatRegionByUsername.set(normalizedUsername, region);
+  pushUnique(passengerChatUsernamesByRegion[region], normalizedUsername);
+  pushUnique(passengerChatUsernames, normalizedUsername);
+
+  return normalizedUsername;
 }
 
 export function getDriverChatIdBySourceChatId(chatId: number): number | null {

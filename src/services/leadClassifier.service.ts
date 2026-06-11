@@ -1,4 +1,4 @@
-﻿import { type AIProviderName, env } from "../config/env.js";
+﻿import { type AIProviderName, env, type SourceRegion } from "../config/env.js";
 import {
   analyzeByKeywordDictionary,
   isRuleAmbiguous,
@@ -438,7 +438,7 @@ function toKeywordScore(result: DictionaryRuleResult): number {
   return result.passenger_score - result.driver_score - result.cargo_score - result.spam_score;
 }
 
-export function keywordClassify(text: string): KeywordClassification {
+export function keywordClassify(text: string, sourceRegion?: SourceRegion | null): KeywordClassification {
   if (!normalizeText(text)) {
     return {
       is_passenger_request: false,
@@ -448,7 +448,7 @@ export function keywordClassify(text: string): KeywordClassification {
     };
   }
 
-  const ruleResult = analyzeByKeywordDictionary(text);
+  const ruleResult = analyzeByKeywordDictionary(text, sourceRegion);
   const score = toKeywordScore(ruleResult);
   const isPassengerRequest = ruleResult.category === "PASSENGER_LEAD";
 
@@ -877,9 +877,9 @@ function mapAIResultToClassification(ai: AIResult, provider: AIProviderName, nor
   };
 }
 
-export async function classifyMessage(text: string): Promise<MessageClassification> {
+export async function classifyMessage(text: string, sourceRegion?: SourceRegion | null): Promise<MessageClassification> {
   const normalizedText = normalizeText(text);
-  const ruleResult = analyzeByKeywordDictionary(text);
+  const ruleResult = analyzeByKeywordDictionary(text, sourceRegion);
   const ruleClassification = mapRuleResultToClassification(ruleResult, normalizedText);
 
   if (!env.AI_ENABLED || !isRuleAmbiguous(ruleResult)) {
@@ -956,5 +956,6 @@ export async function classifyLead(rawText: string): Promise<LeadClassification>
     route: detectRoute(rawText)
   };
 }
+
 
 

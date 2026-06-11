@@ -1338,17 +1338,18 @@ async function upsertAll(prismaClient: PrismaClient, records: CandidateKeyword[]
   const existingRows = await prismaClient.keywordDictionary.findMany({
     select: {
       normalized: true,
-      category: true
+      category: true,
+      source: true
     }
   });
 
-  const existing = new Set(existingRows.map((row) => `${row.category}::${row.normalized}`));
+  const existing = new Set(existingRows.map((row) => `${row.category}::${row.normalized}::${row.source}`));
   let inserted = 0;
   let updated = 0;
 
   for (const part of chunk(records, 200)) {
     for (const item of part) {
-      const key = `${item.category}::${item.normalized}`;
+      const key = `${item.category}::${item.normalized}::${item.source}`;
       if (existing.has(key)) {
         updated += 1;
       } else {
@@ -1358,9 +1359,10 @@ async function upsertAll(prismaClient: PrismaClient, records: CandidateKeyword[]
 
       await prismaClient.keywordDictionary.upsert({
         where: {
-          normalized_category: {
+          normalized_category_source: {
             normalized: item.normalized,
-            category: item.category
+            category: item.category,
+            source: item.source
           }
         },
         create: {

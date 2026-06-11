@@ -1122,8 +1122,8 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     };
   }
 
-  const classification = await classifyMessage(originalText);
-  const keywordResult = keywordClassify(originalText);
+  const classification = await classifyMessage(originalText, payload.sourceRegion ?? null);
+  const keywordResult = keywordClassify(originalText, payload.sourceRegion ?? null);
   const driverAdHits = detectDriverAdHits(classification.normalizedText);
   const driverAdPatternHits = detectDriverAdPatternHits(originalText, classification.normalizedText);
   const hardTaxiDriverAdHits = detectHardTaxiDriverAdHits(originalText, classification.normalizedText);
@@ -1900,6 +1900,26 @@ export async function processIncomingMessage(ctx: Context): Promise<ProcessMessa
     },
     deleteFromSource: async () => {
       await ctx.api.deleteMessage(ctx.chat!.id, msg.message_id);
+    },
+    notifyPassenger: async (text: string) => {
+      if (ctx.from?.id === undefined) {
+        return;
+      }
+
+      await ctx.api.sendMessage(ctx.from.id, text);
+    },
+    notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
+      const sendOptions =
+        options?.replyToSource === true
+          ? {
+              reply_parameters: {
+                message_id: msg.message_id,
+                allow_sending_without_reply: true
+              }
+            }
+          : {};
+
+      await ctx.api.sendMessage(ctx.chat!.id, text, sendOptions as any);
     }
   };
 
@@ -2014,6 +2034,56 @@ export async function getStatsSnapshot(): Promise<{
       duplicates: weekDuplicates,
       errors: weekErrors
     }
+  };
+}
+
+export async function getAdminStatsSnapshot(): Promise<{
+  today: { leads: number; delivered: number; uniqueClients: number; ignored: number; duplicates: number; errors: number };
+  month: { leads: number; delivered: number; uniqueClients: number; ignored: number; duplicates: number; errors: number };
+}> {
+  const now = new Date();
+  const dayStart = new Date(now);
+  dayStart.setHours(0, 0, 0, 0);
+
+  const monthStart = new Date(now);
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const deliveredStatuses = [LeadStatus.SENT, LeadStatus.DELETED_FROM_SOURCE, LeadStatus.NOT_DELETED_NO_PERMISSION];
+  const leadStatuses = [LeadStatus.NEW, ...deliveredStatuses];
+
+  async function getPeriodStats(start: Date) {
+    const whereCreatedAt = { createdAt: { gte: start } };
+    const [leads, delivered, ignored, duplicates, errors, uniqueRows] = await Promise.all([
+      prisma.lead.count({ where: { ...whereCreatedAt, status: { in: leadStatuses } } }),
+      prisma.lead.count({ where: { ...whereCreatedAt, status: { in: deliveredStatuses } } }),
+      prisma.lead.count({ where: { ...whereCreatedAt, status: LeadStatus.IGNORED } }),
+      prisma.lead.count({ where: { ...whereCreatedAt, status: LeadStatus.DUPLICATE } }),
+      prisma.lead.count({ where: { ...whereCreatedAt, status: LeadStatus.ERROR } }),
+      prisma.lead.findMany({
+        where: {
+          ...whereCreatedAt,
+          status: { in: deliveredStatuses },
+          senderId: { not: null }
+        },
+        distinct: ["senderId"],
+        select: { senderId: true }
+      })
+    ]);
+
+    return {
+      leads,
+      delivered,
+      uniqueClients: uniqueRows.length,
+      ignored,
+      duplicates,
+      errors
+    };
+  }
+
+  return {
+    today: await getPeriodStats(dayStart),
+    month: await getPeriodStats(monthStart)
   };
 }
 

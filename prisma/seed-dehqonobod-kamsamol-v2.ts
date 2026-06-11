@@ -56,10 +56,11 @@ export async function seedDehqonobodKamsamolV2WithClient(prismaClient: PrismaCli
   const existingRows = await prismaClient.keywordDictionary.findMany({
     select: {
       normalized: true,
-      category: true
+      category: true,
+      source: true
     }
   });
-  const existing = new Set(existingRows.map((row) => `${row.category}::${row.normalized}`));
+  const existing = new Set(existingRows.map((row) => `${row.category}::${row.normalized}::${row.source}`));
 
   await prismaClient.keywordDictionary.updateMany({
     where: {
@@ -74,7 +75,7 @@ export async function seedDehqonobodKamsamolV2WithClient(prismaClient: PrismaCli
   let updated = 0;
 
   for (const record of records) {
-    const key = `${record.category}::${record.normalized}`;
+    const key = `${record.category}::${record.normalized}::${record.source}`;
     if (existing.has(key)) {
       updated += 1;
     } else {
@@ -86,9 +87,10 @@ export async function seedDehqonobodKamsamolV2WithClient(prismaClient: PrismaCli
 
     await prismaClient.keywordDictionary.upsert({
       where: {
-        normalized_category: {
+        normalized_category_source: {
           normalized: record.normalized,
-          category: record.category
+          category: record.category,
+          source: record.source
         }
       },
       create: {

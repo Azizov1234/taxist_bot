@@ -465,6 +465,14 @@ async function replyToEvent(
     }
   }
 
+  if (env.USERBOT_READ_ONLY) {
+    await writeInfo("Admin command reply skipped: userbot read-only mode is enabled", {
+      chatId: resolvedChatId,
+      replyMode: env.ADMIN_COMMAND_REPLY_MODE
+    });
+    return;
+  }
+
   await client.sendMessage(inputChat, {
     message: text
   });
@@ -1208,6 +1216,17 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     operation: string,
     meta?: Record<string, unknown>
   ): Promise<boolean> => {
+    if (env.USERBOT_READ_ONLY) {
+      await writeInfo("Userbot channel write skipped: read-only mode is enabled", {
+        chatId: String(chatIdNumber),
+        operation,
+        isPassengerSource: isPassengerSourceChatId(chatIdNumber),
+        isDriverChat: isDriverChatId(chatIdNumber),
+        ...meta
+      });
+      return false;
+    }
+
     const allowed = await resolveUserbotWriteCapability(chatIdNumber);
     if (!allowed) {
       await writeWarn("Userbot channel write skipped: userbot is not admin", {
@@ -1353,7 +1372,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   ): UnifiedMessageActions => {
     const actions: UnifiedMessageActions = {
       sendToDriver: async (formattedText, _originalText) => {
-        if (env.DRIVER_DELIVERY_MODE === "bot") {
+        if (env.USERBOT_READ_ONLY || env.DRIVER_DELIVERY_MODE === "bot") {
           return await sendDriverLeadViaBotBridge({
             payload,
             driverChatId,
@@ -1437,6 +1456,18 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
           return;
         }
 
+        if (env.USERBOT_READ_ONLY) {
+          const sent = await sendTelegramBotMessage(senderUserId, text);
+          if (!sent) {
+            await writeInfo("Passenger private notify skipped: Bot API token is not configured", {
+              sourceChatId: payload.sourceChatId,
+              sourceMessageId: payload.sourceMessageId,
+              senderId: payload.senderId
+            });
+          }
+          return;
+        }
+
         await runThrottledTelegramWrite("notify_passenger", async () =>
           client.sendMessage(senderUserId, {
             message: text
@@ -1445,6 +1476,19 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       },
       notifySourceChat: async (text: string, options?: { replyToSource?: boolean }) => {
         if (shouldBlockPassengerGroupWrite(sourceChatIdNumber)) {
+          return;
+        }
+
+        if (env.USERBOT_READ_ONLY) {
+          const botMessageOptions = options?.replyToSource ? { replyToMessageId: payload.sourceMessageId } : {};
+          const sent = await sendTelegramBotMessage(sourceChatIdNumber, text, botMessageOptions);
+
+          if (!sent) {
+            await writeWarn("Passenger source notify skipped: Bot API token is not configured", {
+              sourceChatId: payload.sourceChatId,
+              sourceMessageId: payload.sourceMessageId
+            });
+          }
           return;
         }
 
@@ -1463,7 +1507,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       }
     };
 
-    if (canDeleteFromSource) {
+    if (canDeleteFromSource && !env.USERBOT_READ_ONLY) {
       actions.deleteFromSource = async () => {
         if (!(await guardUserbotChannelWrite(sourceChatIdNumber, "delete_source_message", {
           sourceChatId: payload.sourceChatId,
@@ -1901,7 +1945,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     periodicCatchUpLimit,
     passengerGroupAutoReplies: env.PASSENGER_GROUP_AUTO_REPLIES,
     sendDriverAdWarnings: env.SEND_DRIVER_AD_WARNINGS,
-    passengerChannelWrites: "admin_only",
+    userbotReadOnly: env.USERBOT_READ_ONLY,
+    passengerChannelWrites: env.USERBOT_READ_ONLY ? "bot_api_when_enabled" : "admin_only",
     adminId: env.ADMIN_TELEGRAM_ID
   });
 }

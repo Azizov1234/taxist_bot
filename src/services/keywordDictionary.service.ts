@@ -1,4 +1,5 @@
 import { KeywordCategory, KeywordLanguage, KeywordMatchType, type KeywordDictionary, Prisma } from "@prisma/client";
+import type { SourceRegion } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
 import { detectKeywordLanguage, normalizePhrase } from "../utils/keywordNormalize.js";
 
@@ -13,7 +14,7 @@ interface CachedKeyword {
   weight: number;
   language: KeywordLanguage;
   matchType: KeywordMatchType;
-  source: string | null;
+  source: string;
   customRegex?: RegExp;
   firstToken?: string;
 }
@@ -64,6 +65,8 @@ let keywordCache: KeywordCacheState = {
   phraseIndex: new Map<string, CachedKeyword[]>(),
   regexKeywords: []
 };
+
+const SOURCE_REGION_SET = new Set<string>(["TASHKENT", "GULISTON", "KOMSOMOL"]);
 
 function tryCompileRegex(pattern: string): RegExp | undefined {
   try {
@@ -131,6 +134,19 @@ function matchesKeyword(text: string, normalizedText: string, keyword: CachedKey
   }
 
   return hasPhraseBoundary(normalizedText, keyword.normalized);
+}
+
+function matchesSourceRegion(source: string, sourceRegion?: SourceRegion | null): boolean {
+  if (!source) {
+    return true;
+  }
+
+  const normalizedSource = source.trim().toUpperCase();
+  if (!SOURCE_REGION_SET.has(normalizedSource)) {
+    return true;
+  }
+
+  return normalizedSource === sourceRegion;
 }
 
 function applyCategoryScore(scores: CategoryScores, matches: MatchMeta, keyword: CachedKeyword): void {
@@ -285,7 +301,7 @@ export function getKeywordCacheStats(): { loadedAt: number; total: number; byCat
   };
 }
 
-export function analyzeByKeywordDictionary(text: string): DictionaryRuleResult {
+export function analyzeByKeywordDictionary(text: string, sourceRegion?: SourceRegion | null): DictionaryRuleResult {
   const normalizedText = normalizePhrase(text);
   const tokens = [...new Set(normalizedText.split(/\s+/).filter(Boolean))];
   const candidateMap = new Map<number, CachedKeyword>();
@@ -297,11 +313,19 @@ export function analyzeByKeywordDictionary(text: string): DictionaryRuleResult {
     }
 
     for (const candidate of candidates) {
+      if (!matchesSourceRegion(candidate.source, sourceRegion)) {
+        continue;
+      }
+
       candidateMap.set(candidate.id, candidate);
     }
   }
 
   for (const regexKeyword of keywordCache.regexKeywords) {
+    if (!matchesSourceRegion(regexKeyword.source, sourceRegion)) {
+      continue;
+    }
+
     candidateMap.set(regexKeyword.id, regexKeyword);
   }
 
@@ -404,9 +428,10 @@ export async function addKeywordEntry(params: {
 
   const result = await prisma.keywordDictionary.upsert({
     where: {
-      normalized_category: {
+      normalized_category_source: {
         normalized,
-        category: params.category
+        category: params.category,
+        source: params.source ?? "manual"
       }
     },
     create: {
@@ -461,10 +486,11 @@ export async function bulkUpsertKeywordDictionary(records: Array<Prisma.KeywordD
     }
 
     await prisma.keywordDictionary.upsert({
-      where: {
-        normalized_category: {
+    where: {
+        normalized_category_source: {
           normalized: record.normalized,
-          category: record.category
+          category: record.category,
+          source: String(record.source ?? "global")
         }
       },
       create: record,

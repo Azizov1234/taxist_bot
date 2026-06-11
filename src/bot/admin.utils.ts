@@ -2,16 +2,18 @@ import type { Context } from "grammy";
 import { env } from "../config/env.js";
 
 export function isAdmin(ctx: Context): boolean {
-  if (env.ADMIN_TELEGRAM_ID === undefined) {
-    return false;
+  const fromId = ctx.from?.id;
+  if (fromId !== undefined && env.ADMIN_TELEGRAM_IDS.includes(fromId)) {
+    return true;
   }
 
-  return ctx.from?.id === env.ADMIN_TELEGRAM_ID;
+  const username = ctx.from?.username?.trim().replace(/^@/u, "").toLowerCase();
+  return Boolean(username && env.ADMIN_TELEGRAM_USERNAMES.includes(username));
 }
 
 export async function requireAdmin(ctx: Context): Promise<boolean> {
-  if (env.ADMIN_TELEGRAM_ID === undefined) {
-    await ctx.reply("ADMIN_TELEGRAM_ID sozlanmagan.");
+  if (env.ADMIN_TELEGRAM_IDS.length === 0 && env.ADMIN_TELEGRAM_USERNAMES.length === 0) {
+    await ctx.reply("Admin sozlanmagan.");
     return false;
   }
 

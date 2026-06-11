@@ -104,14 +104,14 @@ model KeywordDictionary {
   weight     Int              @default(1)
   language   KeywordLanguage  @default(MIXED)
   matchType  KeywordMatchType @default(PHRASE)
-  source     String?
+  source     String           @default("global")
   frequency  Int              @default(0)
   examples   Json?
   isActive   Boolean          @default(true)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  @@unique([normalized, category])
+  @@unique([normalized, category, source])
   @@index([category, isActive])
   @@index([normalized])
   @@index([weight])
