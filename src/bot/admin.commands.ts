@@ -45,6 +45,31 @@ const KEYWORD_CATEGORIES: KeywordCategory[] = [
   KeywordCategory.AMBIGUOUS
 ];
 
+const REGION_LABELS: Record<SourceRegion, string> = {
+  TASHKENT: "Toshkent",
+  GULISTON: "Guliston",
+  KOMSOMOL: "Komsomol"
+};
+
+const CATEGORY_LABELS: Record<KeywordCategory, string> = {
+  [KeywordCategory.PASSENGER]: "Yo'lovchi kerak",
+  [KeywordCategory.DRIVER]: "Haydovchi reklama",
+  [KeywordCategory.CARGO]: "Pochta/yuk",
+  [KeywordCategory.SPAM]: "Reklama/spam",
+  [KeywordCategory.AMBIGUOUS]: "Noaniq"
+};
+
+const TOGGLE_LABELS: Record<RuntimeBooleanSetting, string> = {
+  PASSENGER_GROUP_AUTO_REPLIES: "Guruhga javob yozish",
+  SEND_PRIVATE_ACK_TO_PASSENGER: "Mijozga lichka yozish",
+  DELETE_SOURCE_MESSAGE_IF_ADMIN: "Topilgan xabarni o'chirish",
+  DELETE_IGNORED_MESSAGE_IF_ADMIN: "Keraksiz xabarni o'chirish"
+};
+
+function onOff(value: boolean): string {
+  return value ? "YONIQ" : "O'CHIQ";
+}
+
 function groupKeywordsByType(items: Awaited<ReturnType<typeof listActiveKeywords>>): string {
   const latin = items.filter((x) => x.type === "LATIN").map((x) => x.word);
   const cyrillic = items.filter((x) => x.type === "CYRILLIC").map((x) => x.word);
@@ -52,10 +77,10 @@ function groupKeywordsByType(items: Awaited<ReturnType<typeof listActiveKeywords
   const extra = items.filter((x) => x.type === "EXTRA").map((x) => x.word);
 
   const lines = [
-    `LATIN (${latin.length}): ${latin.join(", ") || "-"}`,
-    `CYRILLIC (${cyrillic.length}): ${cyrillic.join(", ") || "-"}`,
-    `ROUTE (${route.length}): ${route.join(", ") || "-"}`,
-    `EXTRA (${extra.length}): ${extra.join(", ") || "-"}`
+    `Lotin (${latin.length}): ${latin.join(", ") || "-"}`,
+    `Kirill (${cyrillic.length}): ${cyrillic.join(", ") || "-"}`,
+    `Yo'nalish (${route.length}): ${route.join(", ") || "-"}`,
+    `Qo'shimcha (${extra.length}): ${extra.join(", ") || "-"}`
   ];
 
   const text = lines.join("\n\n");
@@ -69,22 +94,22 @@ function groupKeywordsByType(items: Awaited<ReturnType<typeof listActiveKeywords
 
 function buildAdminPanelKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("➕ Passenger guruh", "admin:add_passenger")
-    .text("🚖 Driver guruh", "admin:set_driver")
+    .text("➕ Yo'lovchi guruhi", "admin:add_passenger")
+    .text("🚖 Haydovchilar guruhi", "admin:set_driver")
     .row()
     .text("👮 Admin qo'shish", "admin:add_admin")
     .text("🚫 Admin o'chirish", "admin:remove_admin")
     .row()
-    .text(`💬 Passenger javob: ${env.PASSENGER_GROUP_AUTO_REPLIES ? "ON" : "OFF"}`, "admin:toggle:PASSENGER_GROUP_AUTO_REPLIES")
+    .text(`💬 ${TOGGLE_LABELS.PASSENGER_GROUP_AUTO_REPLIES}: ${onOff(env.PASSENGER_GROUP_AUTO_REPLIES)}`, "admin:toggle:PASSENGER_GROUP_AUTO_REPLIES")
     .row()
-    .text(`📩 Client DM: ${env.SEND_PRIVATE_ACK_TO_PASSENGER ? "ON" : "OFF"}`, "admin:toggle:SEND_PRIVATE_ACK_TO_PASSENGER")
+    .text(`📩 ${TOGGLE_LABELS.SEND_PRIVATE_ACK_TO_PASSENGER}: ${onOff(env.SEND_PRIVATE_ACK_TO_PASSENGER)}`, "admin:toggle:SEND_PRIVATE_ACK_TO_PASSENGER")
     .row()
-    .text("📚 Lug'at qo'shish", "admin:add_keyword")
+    .text("📚 Gap/so'z qo'shish", "admin:add_keyword")
     .text("📊 Statistika", "admin:stats")
     .row()
-    .text(`🗑 Source delete: ${env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? "ON" : "OFF"}`, "admin:toggle:DELETE_SOURCE_MESSAGE_IF_ADMIN")
+    .text(`🗑 ${TOGGLE_LABELS.DELETE_SOURCE_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`, "admin:toggle:DELETE_SOURCE_MESSAGE_IF_ADMIN")
     .row()
-    .text(`🧹 Ignored delete: ${env.DELETE_IGNORED_MESSAGE_IF_ADMIN ? "ON" : "OFF"}`, "admin:toggle:DELETE_IGNORED_MESSAGE_IF_ADMIN")
+    .text(`🧹 ${TOGGLE_LABELS.DELETE_IGNORED_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`, "admin:toggle:DELETE_IGNORED_MESSAGE_IF_ADMIN")
     .row()
     .text("📋 Ro'yxat", "admin:panel")
     .text("❌ Bekor qilish", "admin:cancel");
@@ -93,7 +118,7 @@ function buildAdminPanelKeyboard(): InlineKeyboard {
 function buildRegionKeyboard(prefix: "admin:add_passenger_region" | "admin:set_driver_region" | "admin:add_keyword_region"): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const region of SOURCE_REGIONS) {
-    keyboard.text(region, `${prefix}:${region}`).row();
+    keyboard.text(REGION_LABELS[region], `${prefix}:${region}`).row();
   }
 
   keyboard.text("⬅️ Orqaga", "admin:panel");
@@ -103,7 +128,7 @@ function buildRegionKeyboard(prefix: "admin:add_passenger_region" | "admin:set_d
 function buildKeywordCategoryKeyboard(region: SourceRegion): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const category of KEYWORD_CATEGORIES) {
-    keyboard.text(category, `admin:add_keyword_category:${region}:${category}`).row();
+    keyboard.text(CATEGORY_LABELS[category], `admin:add_keyword_category:${region}:${category}`).row();
   }
 
   keyboard.text("⬅️ Orqaga", "admin:panel");
@@ -180,6 +205,119 @@ function formatPassengerSourceResult(result: PassengerSourceAddResult): string {
   return result.kind === "chat_id" ? String(result.value) : `@${result.value}`;
 }
 
+function formatPassengerSourceLink(source: PassengerSourceAddResult): string | null {
+  if (source.kind === "username") {
+    return `https://t.me/${source.value}`;
+  }
+
+  const chatId = String(source.value);
+  if (!chatId.startsWith("-100")) {
+    return null;
+  }
+
+  return `https://t.me/c/${chatId.slice(4)}`;
+}
+
+function isPrivateInviteLink(rawValue: string): boolean {
+  return /^https?:\/\/(?:t\.me|telegram\.me)\/(?:\+|joinchat\/)/iu.test(rawValue.trim());
+}
+
+function getChatTitle(chat: unknown): string | null {
+  if (!chat || typeof chat !== "object") {
+    return null;
+  }
+
+  const title = (chat as { title?: unknown }).title;
+  return typeof title === "string" && title.trim() ? title.trim() : null;
+}
+
+async function getBotStartGroupLink(ctx: Context): Promise<string | null> {
+  try {
+    const me = await ctx.api.getMe();
+    return me.username ? `https://t.me/${me.username}?startgroup=true` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function savePassengerSourceWithCheck(
+  ctx: Context,
+  region: SourceRegion,
+  source: PassengerSourceAddResult
+): Promise<{ added: PassengerSourceAddResult[]; botCanRead: boolean; title: string | null; warning: string | null; sourceLink: string | null; botLink: string | null }> {
+  const added: PassengerSourceAddResult[] = [];
+  const sourceLink = formatPassengerSourceLink(source);
+  const botLink = await getBotStartGroupLink(ctx);
+  let resolvedChatId: number | null = null;
+  let botCanRead = false;
+  let title: string | null = null;
+  let warning: string | null = null;
+
+  try {
+    const lookup = source.kind === "chat_id" ? source.value : `@${source.value}`;
+    const chat = await ctx.api.getChat(lookup);
+    title = getChatTitle(chat);
+    const chatId = Number(chat.id);
+
+    if (Number.isInteger(chatId) && chatId < 0) {
+      resolvedChatId = chatId;
+      const me = await ctx.api.getMe();
+      const member = await ctx.api.getChatMember(chatId, me.id);
+      botCanRead = member.status !== "left" && member.status !== "kicked";
+    }
+  } catch (error) {
+    warning = error instanceof Error ? error.message : String(error);
+  }
+
+  if (source.kind === "username") {
+    added.push(await addPassengerSource(region, source));
+  }
+
+  if (resolvedChatId !== null) {
+    added.push(await addPassengerSource(region, { kind: "chat_id", value: resolvedChatId }));
+  } else if (source.kind === "chat_id" && warning === null) {
+    added.push(await addPassengerSource(region, source));
+  }
+
+  return { added, botCanRead, title, warning, sourceLink, botLink };
+}
+
+function buildPassengerSourceAddReply(
+  region: SourceRegion,
+  result: Awaited<ReturnType<typeof savePassengerSourceWithCheck>>
+): string {
+  if (result.added.length === 0) {
+    const lines = [
+      "❌ Guruh qo'shilmadi.",
+      "Bot bu guruhni ko'ra olmayapti yoki link noto'g'ri.",
+      result.sourceLink ? `Guruh linki: ${result.sourceLink}` : null,
+      result.botLink ? `Botni guruhga qo'shish: ${result.botLink}` : null,
+      "Bot yoki userbot guruh ichida bo'lsin, keyin qayta urinib ko'ring."
+    ].filter((line): line is string => Boolean(line));
+
+    return lines.join("\n");
+  }
+
+  const saved = [...new Set(result.added.map((item) => formatPassengerSourceResult(item)))].join(", ");
+  const lines = [
+    `✅ Yo'lovchi guruhi saqlandi: ${REGION_LABELS[region]} -> ${saved}`,
+    result.title ? `Guruh: ${result.title}` : null,
+    "ID .env faylga ham, DBga ham yozildi.",
+    result.sourceLink ? `Guruh linki: ${result.sourceLink}` : null
+  ].filter((line): line is string => Boolean(line));
+
+  if (!result.botCanRead) {
+    lines.push("");
+    lines.push("⚠️ Bot bu guruhda a'zo/admin ekanini tasdiqlay olmadi.");
+    lines.push("Xabarlarni olish uchun bot yoki userbot guruh ichida bo'lishi kerak.");
+    if (result.botLink) {
+      lines.push(`Botni qo'shish: ${result.botLink}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function getPendingActionPrompt(action: PendingAdminAction): string {
   if (action.type === "add_admin") {
     return "Yangi admin username yuboring. Masalan: @username\nBekor qilish: /cancel";
@@ -191,17 +329,17 @@ function getPendingActionPrompt(action: PendingAdminAction): string {
 
   if (action.type === "add_keyword") {
     return [
-      `${action.region} / ${action.category} uchun lug'at so'z yoki phrase yuboring.`,
+      `${REGION_LABELS[action.region]} / ${CATEGORY_LABELS[action.category]} uchun so'z yoki butun gap yuboring.`,
       "",
       "Masalan: taxi kerak",
-      "Weight bilan: taxi kerak | 10",
+      "Kuchini berish: taxi kerak | 10",
       "Bekor qilish: /cancel"
     ].join("\n");
   }
 
   if (action.type === "add_passenger") {
     return [
-      `${action.region} uchun passenger/source guruh ID yoki public link yuboring.`,
+      `${REGION_LABELS[action.region]} uchun yo'lovchi guruh ID yoki public link yuboring.`,
       "",
       "Masalan: -1001234567890",
       "Yoki: https://t.me/guruh_username",
@@ -211,7 +349,7 @@ function getPendingActionPrompt(action: PendingAdminAction): string {
   }
 
   return [
-    `${action.region} uchun driver guruh/kanal ID yuboring.`,
+    `${REGION_LABELS[action.region]} uchun haydovchilar guruh/kanal ID yuboring.`,
     "",
     "Masalan: -1001234567890",
     "Agar shu guruh ichida turgan bo'lsangiz: shu",
@@ -283,7 +421,7 @@ async function handlePendingAdminInput(ctx: Context): Promise<boolean> {
     pendingAdminActions.delete(adminId);
     await ctx.reply(
       added
-        ? `✅ Lug'at qo'shildi: ${pending.region} / ${pending.category} / ${added.phrase} (weight ${added.weight})`
+        ? `✅ Lug'at qo'shildi: ${REGION_LABELS[pending.region]} / ${CATEGORY_LABELS[pending.category]} / ${added.phrase} (kuchi ${added.weight})`
         : "Lug'at qo'shilmadi.",
       { reply_markup: buildAdminPanelKeyboard() }
     );
@@ -291,15 +429,30 @@ async function handlePendingAdminInput(ctx: Context): Promise<boolean> {
   }
 
   if (pending.type === "add_passenger") {
+    if (isPrivateInviteLink(text)) {
+      const botLink = await getBotStartGroupLink(ctx);
+      await ctx.reply(
+        [
+          "Bu private invite link. Undan IDni Bot API orqali olishning iloji yo'q.",
+          "Avval bot yoki userbotni guruhga qo'shing.",
+          botLink ? `Botni qo'shish: ${botLink}` : null,
+          "Keyin guruh ichida shu buyruqni ishlating yoki guruh ID/linkini qayta yuboring."
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join("\n")
+      );
+      return true;
+    }
+
     const source = parsePassengerSourceInput(text, ctx.chat?.id);
     if (!source || (source.kind === "chat_id" && source.value > 0)) {
       await ctx.reply("Guruh ID/link noto'g'ri. Masalan: -1001234567890 yoki https://t.me/guruh_username");
       return true;
     }
 
-    const added = await addPassengerSource(pending.region, source);
+    const result = await savePassengerSourceWithCheck(ctx, pending.region, source);
     pendingAdminActions.delete(adminId);
-    await ctx.reply(`✅ Passenger guruh qo'shildi: ${pending.region} -> ${formatPassengerSourceResult(added)}`, {
+    await ctx.reply(buildPassengerSourceAddReply(pending.region, result), {
       reply_markup: buildAdminPanelKeyboard()
     });
     return true;
@@ -313,7 +466,7 @@ async function handlePendingAdminInput(ctx: Context): Promise<boolean> {
 
   await setDriverChat(pending.region, chatId);
   pendingAdminActions.delete(adminId);
-  await ctx.reply(`✅ Driver guruh sozlandi: ${pending.region} -> ${chatId}`, {
+  await ctx.reply(`✅ Haydovchilar guruhi sozlandi: ${REGION_LABELS[pending.region]} -> ${chatId}\nID .env faylga ham, DBga ham yozildi.`, {
     reply_markup: buildAdminPanelKeyboard()
   });
   return true;
@@ -381,14 +534,14 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     }
 
     if (data === "admin:add_passenger") {
-      await ctx.editMessageText("Qaysi route uchun passenger guruh qo'shamiz?", {
+      await ctx.editMessageText("Qaysi yo'nalish uchun yo'lovchi guruhini qo'shamiz?", {
         reply_markup: buildRegionKeyboard("admin:add_passenger_region")
       });
       return;
     }
 
     if (data === "admin:set_driver") {
-      await ctx.editMessageText("Qaysi route uchun driver guruh/kanal sozlaymiz?", {
+      await ctx.editMessageText("Qaysi yo'nalish uchun haydovchilar guruh/kanalini sozlaymiz?", {
         reply_markup: buildRegionKeyboard("admin:set_driver_region")
       });
       return;
@@ -412,17 +565,17 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       const stats = await getAdminStatsSnapshot();
       await ctx.reply(
         [
-          "📊 Client statistikasi:",
+          "📊 Mijoz statistikasi:",
           "",
-          `Bugun client: ${stats.today.delivered}`,
-          `Bugun unique client: ${stats.today.uniqueClients}`,
+          `Bugun mijoz: ${stats.today.delivered}`,
+          `Bugun takrorlanmas mijoz: ${stats.today.uniqueClients}`,
           `Bugun jami lead: ${stats.today.leads}`,
           `Bugun ignored: ${stats.today.ignored}`,
           `Bugun duplicate: ${stats.today.duplicates}`,
           `Bugun error: ${stats.today.errors}`,
           "",
-          `Bu oy client: ${stats.month.delivered}`,
-          `Bu oy unique client: ${stats.month.uniqueClients}`,
+          `Bu oy mijoz: ${stats.month.delivered}`,
+          `Bu oy takrorlanmas mijoz: ${stats.month.uniqueClients}`,
           `Bu oy jami lead: ${stats.month.leads}`,
           `Bu oy ignored: ${stats.month.ignored}`,
           `Bu oy duplicate: ${stats.month.duplicates}`,
@@ -433,7 +586,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     }
 
     if (data === "admin:add_keyword") {
-      await ctx.editMessageText("Qaysi route uchun lug'at qo'shamiz?", {
+      await ctx.editMessageText("Qaysi yo'nalish uchun gap/so'z qo'shamiz?", {
         reply_markup: buildRegionKeyboard("admin:add_keyword_region")
       });
       return;
@@ -443,7 +596,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     const toggleKey = toggleMatch?.[1] as RuntimeBooleanSetting | undefined;
     if (toggleKey && TOGGLE_SETTINGS.includes(toggleKey)) {
       const nextValue = await toggleRuntimeBooleanSetting(toggleKey);
-      await ctx.answerCallbackQuery(`${toggleKey}: ${nextValue ? "ON" : "OFF"}`).catch(() => undefined);
+      await ctx.answerCallbackQuery(`${TOGGLE_LABELS[toggleKey]}: ${onOff(nextValue)}`).catch(() => undefined);
       await sendAdminPanel(ctx, true);
       return;
     }
@@ -469,7 +622,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     const keywordRegionMatch = data.match(/^admin:add_keyword_region:(TASHKENT|GULISTON|KOMSOMOL)$/u);
     if (keywordRegionMatch) {
       const region = keywordRegionMatch[1] as SourceRegion;
-      await ctx.editMessageText(`${region} uchun category tanlang:`, {
+      await ctx.editMessageText(`${REGION_LABELS[region]} uchun turini tanlang:`, {
         reply_markup: buildKeywordCategoryKeyboard(region)
       });
       return;
@@ -530,10 +683,10 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         `Hafta duplicate: ${stats.week.duplicates}`,
         `Hafta error: ${stats.week.errors}`,
         "",
-        `Bugun client: ${adminStats.today.delivered}`,
-        `Bugun unique client: ${adminStats.today.uniqueClients}`,
-        `Bu oy client: ${adminStats.month.delivered}`,
-        `Bu oy unique client: ${adminStats.month.uniqueClients}`
+        `Bugun mijoz: ${adminStats.today.delivered}`,
+        `Bugun takrorlanmas mijoz: ${adminStats.today.uniqueClients}`,
+        `Bu oy mijoz: ${adminStats.month.delivered}`,
+        `Bu oy takrorlanmas mijoz: ${adminStats.month.uniqueClients}`
       ].join("\n")
     );
   });
@@ -555,12 +708,30 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     const arg = getCommandArgument(ctx);
 
     if (!arg) {
-      await ctx.reply("Foydalanish: /addkeyword taxi_soz");
+      await ctx.reply("Foydalanish: /addkeyword taxi kerak yoki /addkeyword taxi kerak | 10");
       return;
     }
 
-    const added = await addKeyword(arg);
-    await ctx.reply(`Qo'shildi: ${added.word} (${added.type})`);
+    const parsedKeyword = parseKeywordInput(arg);
+    if (!parsedKeyword) {
+      await ctx.reply("Gap/so'z bo'sh bo'lmasin. Masalan: /addkeyword taxi kerak | 10");
+      return;
+    }
+
+    const added = await addKeywordEntry({
+      category: KeywordCategory.PASSENGER,
+      phrase: parsedKeyword.phrase,
+      weight: parsedKeyword.weight,
+      source: "manual"
+    });
+    await addKeyword(parsedKeyword.phrase);
+
+    await ctx.reply(
+      added
+        ? `✅ Yo'lovchi lug'atiga qo'shildi: ${added.phrase} (kuchi ${added.weight})`
+        : "Lug'at qo'shilmadi.",
+      { reply_markup: buildAdminPanelKeyboard() }
+    );
   });
 
   bot.command("removekeyword", async (ctx) => {
@@ -616,14 +787,29 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const parsedArg = parseRegionAndPassengerSource(getCommandArgument(ctx));
+    const arg = getCommandArgument(ctx);
+    if (isPrivateInviteLink(arg)) {
+      const botLink = await getBotStartGroupLink(ctx);
+      await ctx.reply(
+        [
+          "Bu private invite link. Avval bot yoki userbotni guruhga qo'shing.",
+          botLink ? `Botni qo'shish: ${botLink}` : null,
+          "Keyin /addpassenger TASHKENT -100... yoki public https://t.me/guruh linkini yuboring."
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join("\n")
+      );
+      return;
+    }
+
+    const parsedArg = parseRegionAndPassengerSource(arg);
     if (!parsedArg) {
       await ctx.reply("Foydalanish: /addpassenger TASHKENT -1001234567890 yoki /addpassenger TASHKENT https://t.me/guruh");
       return;
     }
 
-    const added = await addPassengerSource(parsedArg.region, parsedArg.source);
-    await ctx.reply(`✅ Passenger guruh qo'shildi: ${parsedArg.region} -> ${formatPassengerSourceResult(added)}`, {
+    const result = await savePassengerSourceWithCheck(ctx, parsedArg.region, parsedArg.source);
+    await ctx.reply(buildPassengerSourceAddReply(parsedArg.region, result), {
       reply_markup: buildAdminPanelKeyboard()
     });
   });
@@ -640,7 +826,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     const phrase = phraseParts.join(" ").trim();
 
     if (!region || !category || !phrase) {
-      await ctx.reply("Foydalanish: /adddict KOMSOMOL spam reklama matni");
+      await ctx.reply("Foydalanish: /adddict KOMSOMOL reklama reklama matni yoki /adddict TASHKENT haydovchi bosh joy bor");
       return;
     }
 
@@ -651,7 +837,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       source: region
     });
 
-    await ctx.reply(added ? `✅ Lug'at qo'shildi: ${region} / ${category} / ${added.phrase}` : "Lug'at qo'shilmadi.", {
+    await ctx.reply(added ? `✅ Lug'at qo'shildi: ${REGION_LABELS[region]} / ${CATEGORY_LABELS[category]} / ${added.phrase}` : "Lug'at qo'shilmadi.", {
       reply_markup: buildAdminPanelKeyboard()
     });
   });
@@ -668,7 +854,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     }
 
     await setDriverChat(parsedArg.region, parsedArg.chatId);
-    await ctx.reply(`✅ Driver guruh sozlandi: ${parsedArg.region} -> ${parsedArg.chatId}`, {
+    await ctx.reply(`✅ Haydovchilar guruhi sozlandi: ${REGION_LABELS[parsedArg.region]} -> ${parsedArg.chatId}\nID .env faylga ham, DBga ham yozildi.`, {
       reply_markup: buildAdminPanelKeyboard()
     });
   });
@@ -689,10 +875,10 @@ export function registerAdminCommands(bot: Bot<Context>): void {
 
     await ctx.reply(
       [
-        `Passenger request: ${result.is_passenger_request ? "ha" : "yo'q"}`,
-        `Confidence: ${result.confidence}`,
+        `Yo'lovchi so'rovi: ${result.is_passenger_request ? "ha" : "yo'q"}`,
+        `Ishonch: ${result.confidence}`,
         `Provider: ${result.provider}`,
-        `Reason: ${result.reason}`,
+        `Sabab: ${result.reason}`,
         `Keyword score: ${result.keywordScore ?? "-"}`
       ].join("\n")
     );
@@ -709,6 +895,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         `User ID: ${ctx.from?.id ?? "n/a"}`,
         `ADMIN_TELEGRAM_IDS: ${env.ADMIN_TELEGRAM_IDS.join(", ") || "-"}`,
         `ADMIN_TELEGRAM_USERNAMES: ${env.ADMIN_TELEGRAM_USERNAMES.map((item) => `@${item}`).join(", ") || "-"}`,
+        `SOURCE_CHAT_IDS: ${env.SOURCE_CHAT_IDS.join(", ") || "-"}`,
         `PASSENGER_CHAT_IDS: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
         `PASSENGER_CHAT_IDS_TASHKENT: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,
         `PASSENGER_CHAT_IDS_GULISTON: ${env.PASSENGER_CHAT_IDS_GULISTON.join(", ") || "-"}`,
@@ -736,7 +923,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
         ? `${prefix}: OK | chatId=${info.chatId} | type=${info.type} | title=${info.title ?? "-"} | member=${info.membershipStatus ?? "-"}`
         : `${prefix}: XATO | chatId=${info.chatId} | error=${info.error ?? "unknown"}`;
 
-    await ctx.reply([line("PASSENGER", check.passenger), line("DRIVER", check.driver)].join("\n\n"));
+    await ctx.reply([line("YO'LOVCHI GURUHI", check.passenger), line("HAYDOVCHI GURUHI", check.driver)].join("\n\n"));
   });
 }
 

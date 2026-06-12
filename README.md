@@ -37,12 +37,18 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `PASSENGER_CHAT_IDS_TASHKENT`, `PASSENGER_CHAT_IDS_GULISTON`, `PASSENGER_CHAT_IDS_KOMSOMOL`
 - Public username/link source'lar uchun: `PASSENGER_CHAT_USERNAMES_TASHKENT`, `PASSENGER_CHAT_USERNAMES_GULISTON`, `PASSENGER_CHAT_USERNAMES_KOMSOMOL`
 - `DRIVER_CHAT_ID_TASHKENT`, `DRIVER_CHAT_ID_GULISTON`, `DRIVER_CHAT_ID_KOMSOMOL`
-- Legacy fallback ham bor: `PASSENGER_CHAT_IDS`, `DRIVER_CHAT_ID`
+- Legacy fallback ham bor: `SOURCE_CHAT_IDS`, `PASSENGER_CHAT_IDS`, `DRIVER_CHAT_ID`
 - `PASSENGER_HELP_GROUP_LINK` (ixtiyoriy): username/telefon bo'lmasa yo'lovchiga lichkada yuboriladigan yordamchi guruh havolasi.
 - `DRIVER_PREMIUM_GROUP_LINK` (ixtiyoriy): haydovchi pullik guruhiga qo'shilish havolasi. Driver reklama xabari bloklanganda guruh va lichkaga shu link yuboriladi.
 - `TELEGRAM_BOT_TOKEN` (ixtiyoriy): userbot mode'da admin command javoblarini va driver kanal postlarini oddiy bot nomidan yuborish uchun.
 - `ADMIN_COMMAND_REPLY_MODE=bot|userbot|off` (default: `bot`): admin command javob transporti.
 - `DRIVER_DELIVERY_MODE=auto|bot|userbot` (default: `auto`): `auto` token bo'lsa oddiy bot orqali, token bo'lmasa eski userbot transporti orqali yuboradi. Userbot driver kanalga umuman yozmasin desangiz `bot` qiling va `TELEGRAM_BOT_TOKEN`ni to'ldiring.
+
+## Runtime Sozlamalar
+- Admin paneldan qo'shilgan yo'lovchi guruhlari, haydovchi guruhlari, admin username va yoqish/o'chirish sozlamalari `.env` faylga ham, `RuntimeConfig` DB jadvaliga ham yoziladi.
+- Bot start paytida avval `.env` o'qiladi, keyin DBdagi `RuntimeConfig` qiymatlari qo'shiladi.
+- Public guruh username/link bilan qo'shilsa, userbot guruhni ko'rgan paytda chat IDni orqa fonda aniqlab, `.env` va DBga saqlaydi.
+- `PASSENGER_GROUP_AUTO_REPLIES=false` va `USERBOT_READ_ONLY=true` holatda userbot passenger guruhlarga yozmaydi.
 
 ## Scriptlar
 - `npm run dev` - default userbot (`src/main.ts`)

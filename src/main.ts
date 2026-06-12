@@ -1,7 +1,8 @@
 import { prisma } from "./prisma/client.js";
-import { env, getSourceRegionByPassengerChatId } from "./config/env.js";
+import { assertRuntimeRoutingConfigured, env, getSourceRegionByPassengerChatId } from "./config/env.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
 import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
+import { loadRuntimeConfigFromDatabase } from "./services/runtimeConfig.service.js";
 import { writeError, writeInfo, writeWarn } from "./services/logger.service.js";
 import { runLegacyBotWithCatch, startTokenBotLayer } from "./index.js";
 import { createAndConnectUserbotClient } from "./userbot/gramjs.client.js";
@@ -85,12 +86,15 @@ async function validateSourceChats(client: TelegramClient): Promise<void> {
     }
   }
 
-  if (validIds.length === 0) {
+  if (validIds.length === 0 && env.TELEGRAM_MODE === "userbot") {
     throw new Error("No valid PASSENGER_CHAT_IDS available for this account. Join the source group(s) and run get:ids again.");
   }
 
-  env.PASSENGER_CHAT_IDS.length = 0;
-  env.PASSENGER_CHAT_IDS.push(...validIds);
+  if (validIds.length === 0) {
+    await writeWarn("No passenger source chats were validated for userbot; token bot layer may still process configured chats", {
+      configuredSourceChats: env.PASSENGER_CHAT_IDS
+    });
+  }
 
   await writeInfo("Passenger source chats validated", {
     sourceChats: resolvedTitles
@@ -179,6 +183,8 @@ async function startUserbotMode(options: StartUserbotModeOptions = {}): Promise<
 
   try {
     await prisma.$connect();
+    await loadRuntimeConfigFromDatabase();
+    assertRuntimeRoutingConfigured();
     await seedDefaultKeywords();
     await loadKeywordDictionaryCache();
     const keywordCacheStats = getKeywordCacheStats();

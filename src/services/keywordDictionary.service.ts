@@ -216,23 +216,23 @@ function uniqueMatches(matches: MatchMeta): string[] {
 
 export function mapInputCategory(value: string): KeywordCategory | null {
   const key = value.trim().toLowerCase();
-  if (key === "passenger") {
+  if (["passenger", "yo'lovchi", "yolovchi", "mijoz", "odam", "kishi"].includes(key)) {
     return KeywordCategory.PASSENGER;
   }
 
-  if (key === "driver") {
+  if (["driver", "haydovchi", "taksichi", "taxist", "taksist"].includes(key)) {
     return KeywordCategory.DRIVER;
   }
 
-  if (key === "cargo") {
+  if (["cargo", "pochta", "pocht", "yuk"].includes(key)) {
     return KeywordCategory.CARGO;
   }
 
-  if (key === "spam") {
+  if (["spam", "reklama", "keraksiz"].includes(key)) {
     return KeywordCategory.SPAM;
   }
 
-  if (key === "ambiguous") {
+  if (["ambiguous", "noaniq", "aniqmas"].includes(key)) {
     return KeywordCategory.AMBIGUOUS;
   }
 

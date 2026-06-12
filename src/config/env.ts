@@ -116,6 +116,7 @@ const envSchema = z.object({
   TELEGRAM_RETRY_DELAY_MS: optionalNumberSchema,
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: optionalNumberSchema,
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: optionalNumberSchema,
+  SOURCE_CHAT_IDS: optionalStringSchema,
   PASSENGER_CHAT_IDS: optionalStringSchema,
   PASSENGER_CHAT_IDS_TASHKENT: optionalStringSchema,
   PASSENGER_CHAT_IDS_GULISTON: optionalStringSchema,
@@ -292,7 +293,7 @@ function hasProviderCredentials(provider: AIProviderName): boolean {
   return Boolean(envData.CLOUDFLARE_API_TOKEN && envData.CLOUDFLARE_ACCOUNT_ID);
 }
 
-const legacyPassengerChatIds = parseChatIdList(parsed.data.PASSENGER_CHAT_IDS);
+const legacyPassengerChatIds = [...new Set([...parseChatIdList(parsed.data.SOURCE_CHAT_IDS), ...parseChatIdList(parsed.data.PASSENGER_CHAT_IDS)])];
 const passengerChatIdsByRegion: Record<SourceRegion, number[]> = {
   TASHKENT: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_TASHKENT),
   GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON),
@@ -338,11 +339,6 @@ for (const region of SOURCE_REGIONS) {
 const passengerChatIds = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatIdsByRegion[region]))];
 const passengerChatUsernames = [...new Set(SOURCE_REGIONS.flatMap((region) => passengerChatUsernamesByRegion[region]))];
 
-requireRuntimeConfig(
-  passengerChatIds.length > 0 || passengerChatUsernames.length > 0,
-  "at least one passenger source chat is required (PASSENGER_CHAT_IDS/PASSENGER_CHAT_USERNAMES or regional variants)"
-);
-
 const legacyDriverChatId = parsed.data.DRIVER_CHAT_ID;
 const driverChatIdByRegion: Record<SourceRegion, number | null> = {
   TASHKENT: parsed.data.DRIVER_CHAT_ID_TASHKENT ?? legacyDriverChatId ?? null,
@@ -350,17 +346,8 @@ const driverChatIdByRegion: Record<SourceRegion, number | null> = {
   KOMSOMOL: parsed.data.DRIVER_CHAT_ID_KOMSOMOL ?? legacyDriverChatId ?? null
 };
 
-for (const region of SOURCE_REGIONS) {
-  const hasPassengerSources = passengerChatIdsByRegion[region].length > 0 || passengerChatUsernamesByRegion[region].length > 0;
-  requireRuntimeConfig(!hasPassengerSources || driverChatIdByRegion[region] !== null, `DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
-}
-
 const driverChatIds = [...new Set(Object.values(driverChatIdByRegion).filter((chatId): chatId is number => chatId !== null))];
-const driverChatId = SOURCE_REGIONS.map((region) => driverChatIdByRegion[region]).find((chatId): chatId is number => chatId !== null) ?? (isGetIdsMode ? 0 : undefined);
-
-if (driverChatId === undefined) {
-  failConfig("DRIVER_CHAT_ID is required");
-}
+const driverChatId = SOURCE_REGIONS.map((region) => driverChatIdByRegion[region]).find((chatId): chatId is number => chatId !== null) ?? 0;
 
 const adminTelegramIds = [
   ...new Set([
@@ -469,6 +456,7 @@ export const env = {
   TELEGRAM_RETRY_DELAY_MS: Math.round(telegramRetryDelayMs),
   TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS: Math.round(telegramStartupConnectMaxAttempts),
   TELEGRAM_STARTUP_CONNECT_RETRY_MS: Math.round(telegramStartupConnectRetryMs),
+  SOURCE_CHAT_IDS: legacyPassengerChatIds,
   PASSENGER_CHAT_IDS: passengerChatIds,
   PASSENGER_CHAT_IDS_TASHKENT: passengerChatIdsByRegion.TASHKENT,
   PASSENGER_CHAT_IDS_GULISTON: passengerChatIdsByRegion.GULISTON,
@@ -518,7 +506,7 @@ export const env = {
   DELETE_IGNORED_MESSAGE_IF_ADMIN: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN ?? true,
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
   PASSENGER_GROUP_AUTO_REPLIES: passengerGroupAutoReplies,
-  USERBOT_READ_ONLY: parsed.data.USERBOT_READ_ONLY ?? false,
+  USERBOT_READ_ONLY: parsed.data.USERBOT_READ_ONLY ?? true,
   SEND_DRIVER_AD_WARNINGS: sendDriverAdWarnings,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
   LISTENER_STARTUP_BACKFILL_LIMIT: Math.round(listenerStartupBackfillLimit),
@@ -561,6 +549,7 @@ export function registerResolvedPassengerChat(chatId: number, region: SourceRegi
   passengerChatRegionById.set(chatId, region);
   pushUnique(passengerChatIdsByRegion[region], chatId);
   pushUnique(passengerChatIds, chatId);
+  pushUnique(env.SOURCE_CHAT_IDS, chatId);
 }
 
 export function registerResolvedPassengerChatUsername(username: string, region: SourceRegion): string {
@@ -592,6 +581,24 @@ export function getDriverChatIdBySourceChatId(chatId: number): number | null {
 
 export function isDriverChatId(chatId: number): boolean {
   return env.DRIVER_CHAT_IDS.includes(chatId);
+}
+
+export function assertRuntimeRoutingConfigured(): void {
+  if (env.PASSENGER_CHAT_IDS.length === 0 && env.PASSENGER_CHAT_USERNAMES.length === 0) {
+    failConfig("at least one passenger source chat is required (PASSENGER_CHAT_IDS/SOURCE_CHAT_IDS/PASSENGER_CHAT_USERNAMES or regional variants)");
+  }
+
+  for (const region of SOURCE_REGIONS) {
+    const hasPassengerSources =
+      env.PASSENGER_CHAT_IDS_BY_REGION[region].length > 0 || env.PASSENGER_CHAT_USERNAMES_BY_REGION[region].length > 0;
+    if (hasPassengerSources && env.DRIVER_CHAT_ID_BY_REGION[region] === null) {
+      failConfig(`DRIVER_CHAT_ID_${region} (or fallback DRIVER_CHAT_ID) is required`);
+    }
+  }
+
+  if (env.DRIVER_CHAT_IDS.length === 0 || env.DRIVER_CHAT_ID === 0) {
+    failConfig("DRIVER_CHAT_ID is required");
+  }
 }
 
 export type AppEnv = typeof env;

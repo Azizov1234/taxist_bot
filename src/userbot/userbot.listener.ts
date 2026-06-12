@@ -35,6 +35,7 @@ import {
 } from "../services/lead.service.js";
 import { sendDriverLeadViaBotBridge } from "../services/driverDelivery.service.js";
 import { writeError, writeInfo, writeWarn } from "../services/logger.service.js";
+import { addPassengerSourceChat } from "../services/runtimeConfig.service.js";
 import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
 import { shouldBlockPassengerGroupWrite } from "../utils/passengerGroupWrite.js";
 
@@ -57,9 +58,29 @@ interface SourceScanStats {
 
 const KAMSAMOL_SOURCE_USERNAME = "KamsamoltaksiN1";
 const ADMIN_COMMAND_HELP_TEXT =
-  "Mavjud commandlar: .help, .status, .stats, .test <text>, .sources, .source_probe, .pause, .resume, .last <n>, .keywords <category>, .keyword_count, .add_keyword <category> \"phrase\" <weight>, .reload_keywords";
+  "Mavjud buyruqlar: .help, .status, .stats, .test <matn>, .sources, .source_probe, .pause, .resume, .last <son>, .keywords <tur>, .keyword_count, .add_keyword <tur> <gap> <kuch>, .reload_keywords";
 const KAMSAMOL_SOURCE_USERNAMES = [KAMSAMOL_SOURCE_USERNAME, "kamsamolikmiz"];
 const KAMSAMOL_SOURCE_ALIASES = ["kamsamol", "komsamol", "komsomol", "komosol", "камсамол", "комсомол"];
+
+function formatKeywordCategoryLabel(category: string): string {
+  if (category === "PASSENGER") {
+    return "yo'lovchi";
+  }
+
+  if (category === "DRIVER") {
+    return "haydovchi";
+  }
+
+  if (category === "CARGO") {
+    return "pochta/yuk";
+  }
+
+  if (category === "SPAM") {
+    return "reklama/spam";
+  }
+
+  return "noaniq";
+}
 
 function createSourceScanStats(): SourceScanStats {
   return {
@@ -583,7 +604,11 @@ async function resolveSourceChat(
     throw new Error(`Source chat not matched. candidates=[${uniqueCandidateIds.join(", ")}], username=${chatUsername ?? "-"}`);
   }
 
-  registerResolvedPassengerChat(sourceChatIdNumber, matchedRegion);
+  if (getSourceRegionByPassengerChatId(sourceChatIdNumber) === null) {
+    await addPassengerSourceChat(matchedRegion, sourceChatIdNumber);
+  } else {
+    registerResolvedPassengerChat(sourceChatIdNumber, matchedRegion);
+  }
 
   const sourceRegion = getSourceRegionByPassengerChatId(sourceChatIdNumber);
   const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
@@ -789,20 +814,35 @@ async function handleAdminCommand(
   }
 
   if (command === ".add_keyword") {
-    const match = commandText.match(/^\.add_keyword\s+(\w+)\s+"([^"]+)"(?:\s+(\d+))?$/i);
-    if (!match) {
-      await reply( 'Foydalanish: .add_keyword passenger "ketish kerak" 8');
-      return true;
-    }
+    const raw = commandText.replace(/^\.add_keyword\s+/iu, "").trim();
+    const quotedMatch = raw.match(/^(\S+)\s+"([^"]+)"(?:\s+(\d+))?$/iu);
+    const parts = quotedMatch ? [] : raw.split(/\s+/u).filter(Boolean);
+    const rawCategory = quotedMatch?.[1] ?? parts.shift() ?? "";
+    const category = mapInputCategory(rawCategory);
 
-    const category = mapInputCategory(match[1] ?? "");
     if (!category) {
-      await reply( "Category noto'g'ri. passenger|driver|cargo|spam|ambiguous");
+      await reply("Foydalanish: .add_keyword yo'lovchi taxi kerak 8 yoki .add_keyword haydovchi \"bosh joy bor\" 10");
       return true;
     }
 
-    const phrase = match[2] ?? "";
-    const weight = Number(match[3] ?? "1");
+    let phrase = quotedMatch?.[2]?.trim() ?? parts.join(" ").trim();
+    let rawWeight = quotedMatch?.[3] ?? "";
+
+    if (!quotedMatch && parts.length > 1) {
+      const lastPart = parts[parts.length - 1] ?? "";
+      if (/^\d+$/u.test(lastPart)) {
+        rawWeight = lastPart;
+        phrase = parts.slice(0, -1).join(" ").trim();
+      }
+    }
+
+    if (!phrase) {
+      await reply("Gap/so'z bo'sh bo'lmasin. Masalan: .add_keyword yo'lovchi taxi kerak 8");
+      return true;
+    }
+
+    const parsedWeight = Number(rawWeight || "8");
+    const weight = Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 8;
     const added = await addKeywordEntry({
       category,
       phrase,
@@ -815,7 +855,7 @@ async function handleAdminCommand(
       return true;
     }
 
-    await reply( `Saqlangan: [${added.category}] ${added.phrase} (w=${added.weight})`);
+    await reply(`Saqlangan: ${formatKeywordCategoryLabel(added.category)} / ${added.phrase} (kuchi ${added.weight})`);
     return true;
   }
 
@@ -957,7 +997,11 @@ async function resolveConfiguredPassengerUsernameSources(client: TelegramClient)
           continue;
         }
 
-        registerResolvedPassengerChat(chatId, region);
+        if (getSourceRegionByPassengerChatId(chatId) === null) {
+          await addPassengerSourceChat(region, chatId);
+        } else {
+          registerResolvedPassengerChat(chatId, region);
+        }
         await writeInfo("Configured passenger username resolved", {
           username,
           region,

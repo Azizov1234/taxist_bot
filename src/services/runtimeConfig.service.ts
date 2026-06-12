@@ -7,8 +7,33 @@ import {
   registerResolvedPassengerChatUsername,
   type SourceRegion
 } from "../config/env.js";
+import { prisma } from "../prisma/client.js";
 
 const SOURCE_REGIONS: SourceRegion[] = ["TASHKENT", "GULISTON", "KOMSOMOL"];
+const RUNTIME_CONFIG_KEYS = [
+  "SOURCE_CHAT_IDS",
+  "PASSENGER_CHAT_IDS",
+  "PASSENGER_CHAT_IDS_TASHKENT",
+  "PASSENGER_CHAT_IDS_GULISTON",
+  "PASSENGER_CHAT_IDS_KOMSOMOL",
+  "PASSENGER_CHAT_USERNAMES",
+  "PASSENGER_CHAT_USERNAMES_TASHKENT",
+  "PASSENGER_CHAT_USERNAMES_GULISTON",
+  "PASSENGER_CHAT_USERNAMES_KOMSOMOL",
+  "DRIVER_CHAT_ID",
+  "DRIVER_CHAT_ID_TASHKENT",
+  "DRIVER_CHAT_ID_GULISTON",
+  "DRIVER_CHAT_ID_KOMSOMOL",
+  "ADMIN_TELEGRAM_IDS",
+  "ADMIN_TELEGRAM_USERNAMES",
+  "PASSENGER_GROUP_AUTO_REPLIES",
+  "SEND_PRIVATE_ACK_TO_PASSENGER",
+  "DELETE_SOURCE_MESSAGE_IF_ADMIN",
+  "DELETE_IGNORED_MESSAGE_IF_ADMIN",
+  "SEND_DRIVER_AD_WARNINGS",
+  "USERBOT_READ_ONLY"
+] as const;
+const RUNTIME_CONFIG_KEY_SET = new Set<string>(RUNTIME_CONFIG_KEYS);
 
 export type RuntimeBooleanSetting =
   | "PASSENGER_GROUP_AUTO_REPLIES"
@@ -115,6 +140,186 @@ function formatStringList(values: string[]): string {
   return [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))].join(",");
 }
 
+function formatOnOff(value: boolean): string {
+  return value ? "YONIQ" : "O'CHIQ";
+}
+
+function parseBooleanValue(rawValue: string): boolean | null {
+  const normalized = rawValue.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
+function parseChatIdListValue(rawValue: string): number[] {
+  return rawValue
+    .split(",")
+    .map((value) => parseChatId(value))
+    .filter((value): value is number => value !== null);
+}
+
+function parseUsernameListValue(rawValue: string): string[] {
+  return rawValue
+    .split(/[\s,]+/u)
+    .map((value) => parseTelegramUsernameInput(value))
+    .filter((value): value is string => value !== null);
+}
+
+function setAdminIdList(rawValue: string): void {
+  for (const chatId of parseChatIdListValue(rawValue)) {
+    pushUnique(env.ADMIN_TELEGRAM_IDS, chatId);
+  }
+}
+
+function setAdminUsernameList(rawValue: string): void {
+  for (const username of parseUsernameListValue(rawValue)) {
+    pushUnique(env.ADMIN_TELEGRAM_USERNAMES, username);
+  }
+}
+
+function setPassengerChatList(region: SourceRegion, rawValue: string): void {
+  for (const chatId of parseChatIdListValue(rawValue)) {
+    registerResolvedPassengerChat(chatId, region);
+  }
+}
+
+function setPassengerUsernameList(region: SourceRegion, rawValue: string): void {
+  for (const username of parseUsernameListValue(rawValue)) {
+    registerResolvedPassengerChatUsername(username, region);
+  }
+}
+
+function applyRuntimeConfigValue(key: string, value: string): void {
+  if (key === "SOURCE_CHAT_IDS" || key === "PASSENGER_CHAT_IDS") {
+    setPassengerChatList("TASHKENT", value);
+    return;
+  }
+
+  const passengerIdsRegion = key.match(/^PASSENGER_CHAT_IDS_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  if (passengerIdsRegion) {
+    setPassengerChatList(passengerIdsRegion, value);
+    return;
+  }
+
+  if (key === "PASSENGER_CHAT_USERNAMES") {
+    setPassengerUsernameList("TASHKENT", value);
+    return;
+  }
+
+  const passengerUsernamesRegion = key.match(/^PASSENGER_CHAT_USERNAMES_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  if (passengerUsernamesRegion) {
+    setPassengerUsernameList(passengerUsernamesRegion, value);
+    return;
+  }
+
+  if (key === "DRIVER_CHAT_ID") {
+    const chatId = parseChatId(value);
+    if (chatId !== null) {
+      for (const region of SOURCE_REGIONS) {
+        if (env.DRIVER_CHAT_ID_BY_REGION[region] === null) {
+          setEnvDriverRegion(region, chatId);
+        }
+      }
+    }
+    return;
+  }
+
+  const driverRegion = key.match(/^DRIVER_CHAT_ID_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  if (driverRegion) {
+    const chatId = parseChatId(value);
+    if (chatId !== null) {
+      setEnvDriverRegion(driverRegion, chatId);
+    }
+    return;
+  }
+
+  if (key === "ADMIN_TELEGRAM_IDS") {
+    setAdminIdList(value);
+    return;
+  }
+
+  if (key === "ADMIN_TELEGRAM_USERNAMES") {
+    setAdminUsernameList(value);
+    return;
+  }
+
+  if (
+    key === "PASSENGER_GROUP_AUTO_REPLIES" ||
+    key === "SEND_PRIVATE_ACK_TO_PASSENGER" ||
+    key === "DELETE_SOURCE_MESSAGE_IF_ADMIN" ||
+    key === "DELETE_IGNORED_MESSAGE_IF_ADMIN"
+  ) {
+    const parsed = parseBooleanValue(value);
+    if (parsed !== null) {
+      env[key] = parsed;
+    }
+    return;
+  }
+
+  if (key === "SEND_DRIVER_AD_WARNINGS" || key === "USERBOT_READ_ONLY") {
+    const parsed = parseBooleanValue(value);
+    if (parsed !== null) {
+      env[key] = parsed;
+    }
+  }
+}
+
+function getRuntimeConfigSnapshot(): Record<string, string> {
+  const passengerRegionalUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [getPassengerRegionalEnvKey(item), formatChatIdList(getPassengerRegionalList(item))])
+  );
+  const passengerUsernameRegionalUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [getPassengerUsernameRegionalEnvKey(item), formatStringList(env.PASSENGER_CHAT_USERNAMES_BY_REGION[item])])
+  );
+  const driverRegionalUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [getDriverRegionalEnvKey(item), env.DRIVER_CHAT_ID_BY_REGION[item] === null ? "" : String(env.DRIVER_CHAT_ID_BY_REGION[item])])
+  );
+
+  return {
+    ...passengerRegionalUpdates,
+    ...passengerUsernameRegionalUpdates,
+    ...driverRegionalUpdates,
+    SOURCE_CHAT_IDS: formatChatIdList(env.PASSENGER_CHAT_IDS),
+    PASSENGER_CHAT_IDS: formatChatIdList(env.PASSENGER_CHAT_IDS),
+    PASSENGER_CHAT_USERNAMES: formatStringList(env.PASSENGER_CHAT_USERNAMES),
+    DRIVER_CHAT_ID: env.DRIVER_CHAT_ID === 0 ? "" : String(env.DRIVER_CHAT_ID),
+    ADMIN_TELEGRAM_IDS: formatChatIdList(env.ADMIN_TELEGRAM_IDS),
+    ADMIN_TELEGRAM_USERNAMES: formatStringList(env.ADMIN_TELEGRAM_USERNAMES),
+    PASSENGER_GROUP_AUTO_REPLIES: String(env.PASSENGER_GROUP_AUTO_REPLIES),
+    SEND_PRIVATE_ACK_TO_PASSENGER: String(env.SEND_PRIVATE_ACK_TO_PASSENGER),
+    DELETE_SOURCE_MESSAGE_IF_ADMIN: String(env.DELETE_SOURCE_MESSAGE_IF_ADMIN),
+    DELETE_IGNORED_MESSAGE_IF_ADMIN: String(env.DELETE_IGNORED_MESSAGE_IF_ADMIN),
+    SEND_DRIVER_AD_WARNINGS: String(env.SEND_DRIVER_AD_WARNINGS),
+    USERBOT_READ_ONLY: String(env.USERBOT_READ_ONLY)
+  };
+}
+
+async function upsertRuntimeConfigValues(updates: Record<string, string>): Promise<void> {
+  const entries = Object.entries(updates).filter(([key]) => RUNTIME_CONFIG_KEY_SET.has(key));
+  if (entries.length === 0) {
+    return;
+  }
+
+  try {
+    for (const [key, value] of entries) {
+      await prisma.runtimeConfig.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value }
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`RuntimeConfig DB sync skipped: ${message}`);
+  }
+}
+
 async function updateEnvFile(updates: Record<string, string>): Promise<void> {
   let raw = "";
   try {
@@ -148,6 +353,47 @@ async function updateEnvFile(updates: Record<string, string>): Promise<void> {
   }
 
   await writeFile(ENV_FILE_PATH, `${workingLines.join(eol)}${eol}`, "utf8");
+  await upsertRuntimeConfigValues(updates);
+}
+
+export async function loadRuntimeConfigFromDatabase(): Promise<void> {
+  try {
+    const rows = await prisma.runtimeConfig.findMany({
+      where: {
+        key: {
+          in: [...RUNTIME_CONFIG_KEYS]
+        }
+      }
+    });
+    const rowMap = new Map(rows.map((row) => [row.key, row.value]));
+    const hasRegionalPassengerIds = SOURCE_REGIONS.some(
+      (region) =>
+        env.PASSENGER_CHAT_IDS_BY_REGION[region].length > 0 ||
+        parseChatIdListValue(rowMap.get(getPassengerRegionalEnvKey(region)) ?? "").length > 0
+    );
+    const hasRegionalPassengerUsernames = SOURCE_REGIONS.some(
+      (region) =>
+        env.PASSENGER_CHAT_USERNAMES_BY_REGION[region].length > 0 ||
+        parseUsernameListValue(rowMap.get(getPassengerUsernameRegionalEnvKey(region)) ?? "").length > 0
+    );
+
+    for (const row of rows) {
+      if ((row.key === "SOURCE_CHAT_IDS" || row.key === "PASSENGER_CHAT_IDS") && hasRegionalPassengerIds) {
+        continue;
+      }
+
+      if (row.key === "PASSENGER_CHAT_USERNAMES" && hasRegionalPassengerUsernames) {
+        continue;
+      }
+
+      applyRuntimeConfigValue(row.key, row.value);
+    }
+
+    await upsertRuntimeConfigValues(getRuntimeConfigSnapshot());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`RuntimeConfig DB load skipped: ${message}`);
+  }
 }
 
 function setEnvBoolean(key: RuntimeBooleanSetting, value: boolean): void {
@@ -288,23 +534,24 @@ export function getRuntimeConfigText(): string {
   return [
     "🚕 Taxi bot boshqaruv paneli",
     "",
-    `🔒 Userbot read-only: ${env.USERBOT_READ_ONLY ? "ON" : "OFF"}`,
-    `🚖 Driver delivery: ${env.DRIVER_DELIVERY_MODE}`,
-    `💬 Passenger javoblari: ${env.PASSENGER_GROUP_AUTO_REPLIES ? "ON" : "OFF"}`,
-    `📩 Client DM: ${env.SEND_PRIVATE_ACK_TO_PASSENGER ? "ON" : "OFF"}`,
-    `🗑 Lead source o'chirish: ${env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? "ON" : "OFF"}`,
-    `🧹 Ignored o'chirish: ${env.DELETE_IGNORED_MESSAGE_IF_ADMIN ? "ON" : "OFF"}`,
+    `🔒 Userbot yozmasin: ${formatOnOff(env.USERBOT_READ_ONLY)}`,
+    `🚖 Haydovchi guruhiga yuborish: ${env.DRIVER_DELIVERY_MODE}`,
+    `💬 Yo'lovchi guruhiga javob: ${formatOnOff(env.PASSENGER_GROUP_AUTO_REPLIES)}`,
+    `📩 Mijozga lichka: ${formatOnOff(env.SEND_PRIVATE_ACK_TO_PASSENGER)}`,
+    `🗑 Topilgan xabarni o'chirish: ${formatOnOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`,
+    `🧹 Keraksiz xabarni o'chirish: ${formatOnOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`,
     "",
-    `👮 Admin usernames: ${env.ADMIN_TELEGRAM_USERNAMES.map((item) => `@${item}`).join(", ") || "-"}`,
+    "💾 IDlar .env faylga ham, DBga ham saqlanadi.",
+    `👮 Admin username: ${env.ADMIN_TELEGRAM_USERNAMES.map((item) => `@${item}`).join(", ") || "-"}`,
     "",
-    `👥 Passenger guruhlar: ${env.PASSENGER_CHAT_IDS.length}`,
-    `🔗 Passenger usernames: ${env.PASSENGER_CHAT_USERNAMES.length}`,
+    `👥 Yo'lovchi guruhlari: ${env.PASSENGER_CHAT_IDS.length}`,
+    `🔗 Public username/linklar: ${env.PASSENGER_CHAT_USERNAMES.length}`,
     `Toshkent: ${env.PASSENGER_CHAT_IDS_TASHKENT.length}`,
     `Guliston: ${env.PASSENGER_CHAT_IDS_GULISTON.length}`,
     `Komsomol: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.length}`,
     "",
-    `🚘 Driver TASHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
-    `🚘 Driver GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
-    `🚘 Driver KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`
+    `🚘 Haydovchi TOSHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
+    `🚘 Haydovchi GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
+    `🚘 Haydovchi KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`
   ].join("\n");
 }
