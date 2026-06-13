@@ -45,7 +45,9 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `DRIVER_DELIVERY_MODE=auto|bot|userbot` (default: `auto`): `auto` token bo'lsa oddiy bot orqali, token bo'lmasa eski userbot transporti orqali yuboradi. Userbot driver kanalga umuman yozmasin desangiz `bot` qiling va `TELEGRAM_BOT_TOKEN`ni to'ldiring.
 
 ## Runtime Sozlamalar
-- Admin paneldan qo'shilgan yo'lovchi guruhlari, haydovchi guruhlari, admin username va yoqish/o'chirish sozlamalari `.env` faylga ham, `RuntimeConfig` DB jadvaliga ham yoziladi.
+- Admin paneldan qo'shilgan yo'lovchi guruhlari, haydovchi guruhlari va yoqish/o'chirish sozlamalari `.env` faylga ham, `RuntimeConfig` DB jadvaliga ham yoziladi.
+- Adminlar alohida `AdminUser` DB jadvalida saqlanadi. `.env`dagi `ADMIN_TELEGRAM_ID`/`ADMIN_TELEGRAM_IDS` start paytida `SUPERADMIN` sifatida bir marta upsert qilinadi.
+- `/addadmin @username` yoki `/addadmin 123456789` yangi admin qo'shadi; username bilan qo'shilsa bot IDni aniqlay olsa `telegramId`ni ham saqlaydi.
 - Bot start paytida avval `.env` o'qiladi, keyin DBdagi `RuntimeConfig` qiymatlari qo'shiladi.
 - Public guruh username/link bilan qo'shilsa, userbot guruhni ko'rgan paytda chat IDni orqa fonda aniqlab, `.env` va DBga saqlaydi.
 - `PASSENGER_GROUP_AUTO_REPLIES=false` va `USERBOT_READ_ONLY=true` holatda userbot passenger guruhlarga yozmaydi.
@@ -98,8 +100,11 @@ Asosiy maydonlar `.env.example` ichida tayyor.
 - `TELEGRAM_RETRY_DELAY_MS=2000` — reconnect oralig'i.
 - `TELEGRAM_STARTUP_CONNECT_MAX_ATTEMPTS=0` — startup connect cheksiz urinadi (`0` = infinite).
 - `TELEGRAM_STARTUP_CONNECT_RETRY_MS=5000` — startup retry oralig'i.
+- `LISTENER_PERIODIC_CATCH_UP_ENABLED=true` — live event uzilib-qaytsa ham so'nggi xabarlarni periodik tekshiradi.
+- `USERBOT_HEARTBEAT_INTERVAL_MS=60000` — userbot Telegram ulanishini tekshiradi; ketma-ket xato ko'paysa process supervisor restart qilishi uchun chiqadi.
+- `AUTH_KEY_DUPLICATED` logda ko'rinsa, bir xil `TELEGRAM_STRING_SESSION` ikki joyda ishlayapti. Yangi session oling va faqat bitta instance qoldiring.
 
-## Admin commandlar (faqat `ADMIN_TELEGRAM_ID`)
+## Admin commandlar (DB adminlar)
 Userbot listener commandlari. Javoblar default oddiy Bot API orqali yuboriladi (`TELEGRAM_BOT_TOKEN` + `ADMIN_COMMAND_REPLY_MODE=bot`).
 - `.` yakka holda javob qaytarmaydi
 - `.help`

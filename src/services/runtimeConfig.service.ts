@@ -24,8 +24,6 @@ const RUNTIME_CONFIG_KEYS = [
   "DRIVER_CHAT_ID_TASHKENT",
   "DRIVER_CHAT_ID_GULISTON",
   "DRIVER_CHAT_ID_KOMSOMOL",
-  "ADMIN_TELEGRAM_IDS",
-  "ADMIN_TELEGRAM_USERNAMES",
   "PASSENGER_GROUP_AUTO_REPLIES",
   "SEND_PRIVATE_ACK_TO_PASSENGER",
   "DELETE_SOURCE_MESSAGE_IF_ADMIN",
@@ -78,22 +76,6 @@ function parseChatIdFromTelegramLink(rawValue: string): number | null {
 
   const chatId = Number(`-100${internalId}`);
   return Number.isSafeInteger(chatId) ? chatId : null;
-}
-
-function pushUnique<T>(list: T[], value: T): void {
-  if (!list.includes(value)) {
-    list.push(value);
-  }
-}
-
-function removeValue<T>(list: T[], value: T): boolean {
-  const index = list.indexOf(value);
-  if (index < 0) {
-    return false;
-  }
-
-  list.splice(index, 1);
-  return true;
 }
 
 export function parseTelegramChatIdInput(rawValue: string, currentChatId?: number): number | null {
@@ -171,18 +153,6 @@ function parseUsernameListValue(rawValue: string): string[] {
     .filter((value): value is string => value !== null);
 }
 
-function setAdminIdList(rawValue: string): void {
-  for (const chatId of parseChatIdListValue(rawValue)) {
-    pushUnique(env.ADMIN_TELEGRAM_IDS, chatId);
-  }
-}
-
-function setAdminUsernameList(rawValue: string): void {
-  for (const username of parseUsernameListValue(rawValue)) {
-    pushUnique(env.ADMIN_TELEGRAM_USERNAMES, username);
-  }
-}
-
 function setPassengerChatList(region: SourceRegion, rawValue: string): void {
   for (const chatId of parseChatIdListValue(rawValue)) {
     registerResolvedPassengerChat(chatId, region);
@@ -239,16 +209,6 @@ function applyRuntimeConfigValue(key: string, value: string): void {
     return;
   }
 
-  if (key === "ADMIN_TELEGRAM_IDS") {
-    setAdminIdList(value);
-    return;
-  }
-
-  if (key === "ADMIN_TELEGRAM_USERNAMES") {
-    setAdminUsernameList(value);
-    return;
-  }
-
   if (
     key === "PASSENGER_GROUP_AUTO_REPLIES" ||
     key === "SEND_PRIVATE_ACK_TO_PASSENGER" ||
@@ -289,8 +249,6 @@ function getRuntimeConfigSnapshot(): Record<string, string> {
     PASSENGER_CHAT_IDS: formatChatIdList(env.PASSENGER_CHAT_IDS),
     PASSENGER_CHAT_USERNAMES: formatStringList(env.PASSENGER_CHAT_USERNAMES),
     DRIVER_CHAT_ID: env.DRIVER_CHAT_ID === 0 ? "" : String(env.DRIVER_CHAT_ID),
-    ADMIN_TELEGRAM_IDS: formatChatIdList(env.ADMIN_TELEGRAM_IDS),
-    ADMIN_TELEGRAM_USERNAMES: formatStringList(env.ADMIN_TELEGRAM_USERNAMES),
     PASSENGER_GROUP_AUTO_REPLIES: String(env.PASSENGER_GROUP_AUTO_REPLIES),
     SEND_PRIVATE_ACK_TO_PASSENGER: String(env.SEND_PRIVATE_ACK_TO_PASSENGER),
     DELETE_SOURCE_MESSAGE_IF_ADMIN: String(env.DELETE_SOURCE_MESSAGE_IF_ADMIN),
@@ -498,39 +456,7 @@ export async function setDriverChat(region: SourceRegion, chatId: number): Promi
   });
 }
 
-export async function addAdminUsername(username: string): Promise<string> {
-  const normalizedUsername = parseTelegramUsernameInput(username);
-  if (!normalizedUsername) {
-    throw new Error("Username noto'g'ri.");
-  }
-
-  pushUnique(env.ADMIN_TELEGRAM_USERNAMES, normalizedUsername);
-  await updateEnvFile({
-    ADMIN_TELEGRAM_USERNAMES: formatStringList(env.ADMIN_TELEGRAM_USERNAMES)
-  });
-
-  return normalizedUsername;
-}
-
-export async function removeAdminUsername(username: string): Promise<string | null> {
-  const normalizedUsername = parseTelegramUsernameInput(username);
-  if (!normalizedUsername) {
-    return null;
-  }
-
-  const removed = removeValue(env.ADMIN_TELEGRAM_USERNAMES, normalizedUsername);
-  if (!removed) {
-    return null;
-  }
-
-  await updateEnvFile({
-    ADMIN_TELEGRAM_USERNAMES: formatStringList(env.ADMIN_TELEGRAM_USERNAMES)
-  });
-
-  return normalizedUsername;
-}
-
-export function getRuntimeConfigText(): string {
+export function getRuntimeConfigText(adminSummary = "-"): string {
   return [
     "🚕 Taxi bot boshqaruv paneli",
     "",
@@ -541,8 +467,8 @@ export function getRuntimeConfigText(): string {
     `🗑 Topilgan xabarni o'chirish: ${formatOnOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`,
     `🧹 Keraksiz xabarni o'chirish: ${formatOnOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`,
     "",
-    "💾 IDlar .env faylga ham, DBga ham saqlanadi.",
-    `👮 Admin username: ${env.ADMIN_TELEGRAM_USERNAMES.map((item) => `@${item}`).join(", ") || "-"}`,
+    "💾 Guruh/kanal sozlamalari .env faylga ham, DBga ham saqlanadi.",
+    `👮 Adminlar DB: ${adminSummary}`,
     "",
     `👥 Yo'lovchi guruhlari: ${env.PASSENGER_CHAT_IDS.length}`,
     `🔗 Public username/linklar: ${env.PASSENGER_CHAT_USERNAMES.length}`,

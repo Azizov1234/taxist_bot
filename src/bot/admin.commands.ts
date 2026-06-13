@@ -1,19 +1,24 @@
 import { KeywordCategory } from "@prisma/client";
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import { env, type SourceRegion } from "../config/env.js";
+import {
+  formatAdminIdentity,
+  getAdminListSummary,
+  parseAdminIdentityInput,
+  removeAdminByInput,
+  saveAdminIdentity,
+  type AdminIdentityInput
+} from "../services/admin.service.js";
 import { addKeyword, listActiveKeywords, removeKeyword } from "../services/keyword.service.js";
 import { addKeywordEntry, mapInputCategory } from "../services/keywordDictionary.service.js";
 import { classifyMessage } from "../services/leadClassifier.service.js";
 import { getAdminStatsSnapshot, getStatsSnapshot, getStatusSnapshot } from "../services/lead.service.js";
 import {
-  addAdminUsername,
   addPassengerSource,
   getRuntimeConfigText,
   parsePassengerSourceInput,
   parseSourceRegionInput,
   parseTelegramChatIdInput,
-  parseTelegramUsernameInput,
-  removeAdminUsername,
   setDriverChat,
   toggleRuntimeBooleanSetting,
   type PassengerSourceAddResult,
@@ -136,7 +141,7 @@ function buildKeywordCategoryKeyboard(region: SourceRegion): InlineKeyboard {
 }
 
 async function sendAdminPanel(ctx: Context, edit = false): Promise<void> {
-  const text = getRuntimeConfigText();
+  const text = getRuntimeConfigText(await getAdminListSummary());
   const replyMarkup = buildAdminPanelKeyboard();
 
   if (edit) {
@@ -240,6 +245,105 @@ async function getBotStartGroupLink(ctx: Context): Promise<string | null> {
   }
 }
 
+function toPositiveTelegramId(rawValue: unknown): bigint | null {
+  if (typeof rawValue === "bigint") {
+    return rawValue > 0n ? rawValue : null;
+  }
+
+  if (typeof rawValue === "number") {
+    return Number.isSafeInteger(rawValue) && rawValue > 0 ? BigInt(rawValue) : null;
+  }
+
+  if (typeof rawValue === "string" && /^[1-9]\d{3,19}$/u.test(rawValue.trim())) {
+    try {
+      const parsed = BigInt(rawValue.trim());
+      return parsed > 0n ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function toSafeTelegramIdNumber(value: bigint): number | null {
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
+}
+
+function getResolvedChatUsername(chat: unknown): string | null {
+  if (!chat || typeof chat !== "object") {
+    return null;
+  }
+
+  const username = (chat as { username?: unknown }).username;
+  return typeof username === "string" ? (parseAdminIdentityInput(username)?.username ?? null) : null;
+}
+
+async function resolveAdminIdentityWithBotApi(ctx: Context, rawValue: string): Promise<AdminIdentityInput | null> {
+  const identity = parseAdminIdentityInput(rawValue);
+  if (!identity) {
+    return null;
+  }
+
+  const lookup =
+    identity.username !== undefined
+      ? `@${identity.username}`
+      : identity.telegramId !== undefined
+        ? toSafeTelegramIdNumber(identity.telegramId)
+        : null;
+  if (lookup === null) {
+    return identity;
+  }
+
+  try {
+    const chat = await ctx.api.getChat(lookup);
+    const resolved: AdminIdentityInput = { ...identity };
+    const telegramId = toPositiveTelegramId((chat as { id?: unknown }).id);
+    if (telegramId !== null) {
+      resolved.telegramId = telegramId;
+    }
+
+    const username = getResolvedChatUsername(chat);
+    if (username) {
+      resolved.username = username;
+    }
+
+    return resolved;
+  } catch {
+    return identity;
+  }
+}
+
+async function addAdminFromContext(ctx: Context, rawValue: string) {
+  const identity = await resolveAdminIdentityWithBotApi(ctx, rawValue);
+  if (!identity) {
+    return null;
+  }
+
+  return saveAdminIdentity(identity, undefined, ctx.from?.id);
+}
+
+function formatAdminAddedReply(result: Awaited<ReturnType<typeof addAdminFromContext>>): string {
+  if (!result) {
+    return "Admin ID yoki username noto'g'ri. Masalan: @username yoki 123456789";
+  }
+
+  const action = result.created ? "qo'shildi" : "yangilandi";
+  return `✅ Admin ${action}: ${formatAdminIdentity(result.admin)}`;
+}
+
+function formatAdminRemovedReply(result: Awaited<ReturnType<typeof removeAdminByInput>>): string {
+  if (result.status === "removed") {
+    return `✅ Admin o'chirildi: ${formatAdminIdentity(result.admin)}`;
+  }
+
+  if (result.status === "superadmin") {
+    return `❌ Superadmin o'chirilmaydi: ${formatAdminIdentity(result.admin)}`;
+  }
+
+  return "Bunday admin topilmadi.";
+}
+
 async function savePassengerSourceWithCheck(
   ctx: Context,
   region: SourceRegion,
@@ -320,11 +424,11 @@ function buildPassengerSourceAddReply(
 
 function getPendingActionPrompt(action: PendingAdminAction): string {
   if (action.type === "add_admin") {
-    return "Yangi admin username yuboring. Masalan: @username\nBekor qilish: /cancel";
+    return "Yangi admin username yoki Telegram ID yuboring. Masalan: @username yoki 123456789\nBekor qilish: /cancel";
   }
 
   if (action.type === "remove_admin") {
-    return "O'chiriladigan admin username yuboring. Masalan: @username\nBekor qilish: /cancel";
+    return "O'chiriladigan admin username yoki Telegram ID yuboring. Masalan: @username yoki 123456789\nBekor qilish: /cancel";
   }
 
   if (action.type === "add_keyword") {
@@ -384,22 +488,21 @@ async function handlePendingAdminInput(ctx: Context): Promise<boolean> {
   }
 
   if (pending.type === "add_admin") {
-    const username = parseTelegramUsernameInput(text);
-    if (!username) {
-      await ctx.reply("Username noto'g'ri. Masalan: @username");
+    const added = await addAdminFromContext(ctx, text);
+    if (!added) {
+      await ctx.reply("Admin ID yoki username noto'g'ri. Masalan: @username yoki 123456789");
       return true;
     }
 
-    const added = await addAdminUsername(username);
     pendingAdminActions.delete(adminId);
-    await ctx.reply(`✅ Admin qo'shildi: @${added}`, { reply_markup: buildAdminPanelKeyboard() });
+    await ctx.reply(formatAdminAddedReply(added), { reply_markup: buildAdminPanelKeyboard() });
     return true;
   }
 
   if (pending.type === "remove_admin") {
-    const removed = await removeAdminUsername(text);
+    const removed = await removeAdminByInput(text);
     pendingAdminActions.delete(adminId);
-    await ctx.reply(removed ? `✅ Admin o'chirildi: @${removed}` : "Bunday admin username topilmadi.", {
+    await ctx.reply(formatAdminRemovedReply(removed), {
       reply_markup: buildAdminPanelKeyboard()
     });
     return true;
@@ -761,14 +864,13 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const username = parseTelegramUsernameInput(getCommandArgument(ctx));
-    if (!username) {
-      await ctx.reply("Foydalanish: /addadmin @username");
+    const added = await addAdminFromContext(ctx, getCommandArgument(ctx));
+    if (!added) {
+      await ctx.reply("Foydalanish: /addadmin @username yoki /addadmin 123456789");
       return;
     }
 
-    const added = await addAdminUsername(username);
-    await ctx.reply(`✅ Admin qo'shildi: @${added}`, { reply_markup: buildAdminPanelKeyboard() });
+    await ctx.reply(formatAdminAddedReply(added), { reply_markup: buildAdminPanelKeyboard() });
   });
 
   bot.command("removeadmin", async (ctx) => {
@@ -776,8 +878,8 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const removed = await removeAdminUsername(getCommandArgument(ctx));
-    await ctx.reply(removed ? `✅ Admin o'chirildi: @${removed}` : "Bunday admin username topilmadi.", {
+    const removed = await removeAdminByInput(getCommandArgument(ctx));
+    await ctx.reply(formatAdminRemovedReply(removed), {
       reply_markup: buildAdminPanelKeyboard()
     });
   });
@@ -889,12 +991,13 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
+    const adminSummary = await getAdminListSummary();
     await ctx.reply(
       [
         `Chat ID: ${ctx.chat?.id ?? "n/a"}`,
         `User ID: ${ctx.from?.id ?? "n/a"}`,
-        `ADMIN_TELEGRAM_IDS: ${env.ADMIN_TELEGRAM_IDS.join(", ") || "-"}`,
-        `ADMIN_TELEGRAM_USERNAMES: ${env.ADMIN_TELEGRAM_USERNAMES.map((item) => `@${item}`).join(", ") || "-"}`,
+        `DB adminlar: ${adminSummary}`,
+        `ENV superadmin IDs: ${env.ADMIN_TELEGRAM_IDS.join(", ") || "-"}`,
         `SOURCE_CHAT_IDS: ${env.SOURCE_CHAT_IDS.join(", ") || "-"}`,
         `PASSENGER_CHAT_IDS: ${env.PASSENGER_CHAT_IDS.join(", ")}`,
         `PASSENGER_CHAT_IDS_TASHKENT: ${env.PASSENGER_CHAT_IDS_TASHKENT.join(", ") || "-"}`,

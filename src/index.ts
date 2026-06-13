@@ -2,6 +2,7 @@ import { LogLevel } from "@prisma/client";
 import { createBot } from "./bot/index.js";
 import { ENV_FILE_LOADED, ENV_FILE_PATH, assertRuntimeRoutingConfigured, env } from "./config/env.js";
 import { prisma } from "./prisma/client.js";
+import { seedDefaultAdminsFromEnv } from "./services/admin.service.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
 import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
 import { loadRuntimeConfigFromDatabase } from "./services/runtimeConfig.service.js";
@@ -19,6 +20,7 @@ function isPollingConflictError(error: unknown): boolean {
 export async function startLegacyBot(): Promise<void> {
   await prisma.$connect();
   await loadRuntimeConfigFromDatabase();
+  await seedDefaultAdminsFromEnv();
   assertRuntimeRoutingConfigured();
   await seedDefaultKeywords();
   await loadKeywordDictionaryCache();

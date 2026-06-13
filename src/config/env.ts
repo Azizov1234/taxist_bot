@@ -168,6 +168,8 @@ const envSchema = z.object({
   LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: optionalNumberSchema,
   LISTENER_PERIODIC_CATCH_UP_LIMIT: optionalNumberSchema,
   LISTENER_PROCESS_OUTGOING_MESSAGES: optionalBooleanSchema,
+  USERBOT_HEARTBEAT_INTERVAL_MS: optionalNumberSchema,
+  USERBOT_HEARTBEAT_MAX_FAILURES: optionalNumberSchema,
   OUTBOUND_MIN_DELAY_MS: optionalNumberSchema,
   OUTBOUND_JITTER_MS: optionalNumberSchema,
   STARTUP_BACKFILL_DELETE_SOURCE: optionalBooleanSchema,
@@ -411,6 +413,8 @@ const listenerPeriodicCatchUpLimit = listenerPeriodicCatchUpEnabled
   ? (parsed.data.LISTENER_PERIODIC_CATCH_UP_LIMIT ?? Math.max(50, listenerStartupBackfillLimit * 4))
   : 0;
 const listenerProcessOutgoingMessages = parsed.data.LISTENER_PROCESS_OUTGOING_MESSAGES ?? false;
+const userbotHeartbeatIntervalMs = Math.max(0, Math.round(parsed.data.USERBOT_HEARTBEAT_INTERVAL_MS ?? 60_000));
+const userbotHeartbeatMaxFailures = Math.max(1, Math.round(parsed.data.USERBOT_HEARTBEAT_MAX_FAILURES ?? 5));
 const outboundMinDelayMs = Math.max(0, parsed.data.OUTBOUND_MIN_DELAY_MS ?? 0);
 const outboundJitterMs = Math.max(0, parsed.data.OUTBOUND_JITTER_MS ?? 0);
 const passengerGroupAutoReplies = parsed.data.PASSENGER_GROUP_AUTO_REPLIES ?? false;
@@ -433,6 +437,8 @@ requireConfig(
   "LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS must be greater than 0"
 );
 requireConfig(listenerPeriodicCatchUpLimit >= 0, "LISTENER_PERIODIC_CATCH_UP_LIMIT must be 0 or greater");
+requireConfig(userbotHeartbeatIntervalMs >= 0, "USERBOT_HEARTBEAT_INTERVAL_MS must be 0 or greater");
+requireConfig(userbotHeartbeatMaxFailures >= 1, "USERBOT_HEARTBEAT_MAX_FAILURES must be at least 1");
 requireConfig(outboundMinDelayMs >= 0, "OUTBOUND_MIN_DELAY_MS must be 0 or greater");
 requireConfig(outboundJitterMs >= 0, "OUTBOUND_JITTER_MS must be 0 or greater");
 requireConfig(providerOrder.length > 0, "AI_PROVIDER_ORDER must include at least one valid provider");
@@ -514,6 +520,8 @@ export const env = {
   LISTENER_PERIODIC_CATCH_UP_INTERVAL_MS: Math.round(listenerPeriodicCatchUpIntervalMs),
   LISTENER_PERIODIC_CATCH_UP_LIMIT: Math.round(listenerPeriodicCatchUpLimit),
   LISTENER_PROCESS_OUTGOING_MESSAGES: listenerProcessOutgoingMessages,
+  USERBOT_HEARTBEAT_INTERVAL_MS: userbotHeartbeatIntervalMs,
+  USERBOT_HEARTBEAT_MAX_FAILURES: userbotHeartbeatMaxFailures,
   OUTBOUND_MIN_DELAY_MS: Math.round(outboundMinDelayMs),
   OUTBOUND_JITTER_MS: Math.round(outboundJitterMs),
   STARTUP_BACKFILL_DELETE_SOURCE: parsed.data.STARTUP_BACKFILL_DELETE_SOURCE ?? false,

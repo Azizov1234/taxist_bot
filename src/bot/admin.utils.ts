@@ -1,23 +1,32 @@
 import type { Context } from "grammy";
-import { env } from "../config/env.js";
+import { normalizeTelegramChatUsername } from "../config/env.js";
+import { hasActiveAdmin, isAdminIdentity } from "../services/admin.service.js";
 
-export function isAdmin(ctx: Context): boolean {
+export async function isAdmin(ctx: Context): Promise<boolean> {
   const fromId = ctx.from?.id;
-  if (fromId !== undefined && env.ADMIN_TELEGRAM_IDS.includes(fromId)) {
-    return true;
+  const username = normalizeTelegramChatUsername(ctx.from?.username);
+  if (fromId === undefined && !username) {
+    return false;
   }
 
-  const username = ctx.from?.username?.trim().replace(/^@/u, "").toLowerCase();
-  return Boolean(username && env.ADMIN_TELEGRAM_USERNAMES.includes(username));
+  const identity: { telegramId?: bigint; username?: string } = {};
+  if (fromId !== undefined) {
+    identity.telegramId = BigInt(fromId);
+  }
+  if (username) {
+    identity.username = username;
+  }
+
+  return isAdminIdentity(identity);
 }
 
 export async function requireAdmin(ctx: Context): Promise<boolean> {
-  if (env.ADMIN_TELEGRAM_IDS.length === 0 && env.ADMIN_TELEGRAM_USERNAMES.length === 0) {
+  if (!(await hasActiveAdmin())) {
     await ctx.reply("Admin sozlanmagan.");
     return false;
   }
 
-  if (!isAdmin(ctx)) {
+  if (!(await isAdmin(ctx))) {
     await ctx.reply("Bu buyruq faqat admin uchun.");
     return false;
   }

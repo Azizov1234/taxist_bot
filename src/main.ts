@@ -1,6 +1,7 @@
 import { prisma } from "./prisma/client.js";
 import { assertRuntimeRoutingConfigured, env, getSourceRegionByPassengerChatId } from "./config/env.js";
 import { seedDefaultKeywords } from "./services/keyword.service.js";
+import { seedDefaultAdminsFromEnv } from "./services/admin.service.js";
 import { getKeywordCacheStats, loadKeywordDictionaryCache } from "./services/keywordDictionary.service.js";
 import { loadRuntimeConfigFromDatabase } from "./services/runtimeConfig.service.js";
 import { writeError, writeInfo, writeWarn } from "./services/logger.service.js";
@@ -184,6 +185,7 @@ async function startUserbotMode(options: StartUserbotModeOptions = {}): Promise<
   try {
     await prisma.$connect();
     await loadRuntimeConfigFromDatabase();
+    await seedDefaultAdminsFromEnv();
     assertRuntimeRoutingConfigured();
     await seedDefaultKeywords();
     await loadKeywordDictionaryCache();

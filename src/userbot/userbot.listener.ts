@@ -34,6 +34,7 @@ import {
   type UnifiedMessageActions
 } from "../services/lead.service.js";
 import { sendDriverLeadViaBotBridge } from "../services/driverDelivery.service.js";
+import { isAdminIdentity } from "../services/admin.service.js";
 import { writeError, writeInfo, writeWarn } from "../services/logger.service.js";
 import { addPassengerSourceChat } from "../services/runtimeConfig.service.js";
 import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
@@ -633,7 +634,19 @@ async function handleAdminCommand(
   guardUserbotChannelWrite?: UserbotChannelWriteGuard
 ): Promise<boolean> {
   const senderId = event.message.senderId?.toString();
-  if (!senderId || senderId !== String(env.ADMIN_TELEGRAM_ID ?? "")) {
+  const senderUserId = senderId ? toPositiveUserId(senderId) : null;
+  if (senderUserId === null) {
+    return false;
+  }
+
+  const sender = await event.message.getSender().catch(() => null);
+  const senderUsername = normalizeTelegramChatUsername(toText((sender as any)?.username || (sender as any)?.usernames?.[0]?.username));
+  const identity: { telegramId: bigint; username?: string } = { telegramId: BigInt(senderUserId) };
+  if (senderUsername) {
+    identity.username = senderUsername;
+  }
+
+  if (!(await isAdminIdentity(identity))) {
     return false;
   }
 
@@ -1043,9 +1056,28 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   let lastOutboundWriteAt = 0;
   let periodicCatchUpInFlight = false;
   let listenerBlockedBySessionAuthError = false;
+  let sessionAuthShutdownScheduled = false;
+  let heartbeatFailures = 0;
+
+  const scheduleSessionAuthShutdown = async (errorType: SessionAuthErrorType, recoveryHint: string): Promise<void> => {
+    if (sessionAuthShutdownScheduled) {
+      return;
+    }
+
+    sessionAuthShutdownScheduled = true;
+    await writeWarn("Fatal Telegram session error detected; exiting process for supervisor restart", {
+      errorType,
+      recoveryHint,
+      exitAfterMs: 5000
+    });
+
+    setTimeout(() => {
+      process.exit(1);
+    }, 5000).unref();
+  };
 
   const handleSessionAuthFailure = async (
-    stage: "startup_backfill" | "periodic_catch_up" | "event_handler",
+    stage: "startup_backfill" | "periodic_catch_up" | "event_handler" | "heartbeat",
     error: unknown,
     meta?: Record<string, unknown>
   ): Promise<boolean> => {
@@ -1064,8 +1096,46 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       recoveryHint,
       ...meta
     });
+    await scheduleSessionAuthShutdown(errorType, recoveryHint);
 
     return true;
+  };
+
+  const runHeartbeat = async (): Promise<void> => {
+    if (listenerBlockedBySessionAuthError || env.USERBOT_HEARTBEAT_INTERVAL_MS <= 0) {
+      return;
+    }
+
+    try {
+      await client.getMe();
+      if (heartbeatFailures > 0) {
+        await writeInfo("Userbot heartbeat recovered", {
+          previousFailures: heartbeatFailures
+        });
+      }
+      heartbeatFailures = 0;
+    } catch (error) {
+      const isSessionAuthFailure = await handleSessionAuthFailure("heartbeat", error);
+      if (isSessionAuthFailure) {
+        return;
+      }
+
+      heartbeatFailures += 1;
+      await writeWarn("Userbot heartbeat failed", {
+        failures: heartbeatFailures,
+        maxFailures: env.USERBOT_HEARTBEAT_MAX_FAILURES,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      if (heartbeatFailures >= env.USERBOT_HEARTBEAT_MAX_FAILURES) {
+        await writeError("Userbot heartbeat failure limit reached; exiting process for supervisor restart", error, {
+          failures: heartbeatFailures,
+          maxFailures: env.USERBOT_HEARTBEAT_MAX_FAILURES
+        });
+
+        process.exit(1);
+      }
+    }
   };
 
   const runThrottledTelegramWrite = async <T>(operationName: string, operation: () => Promise<T>): Promise<T> => {
@@ -1942,6 +2012,12 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     }, periodicCatchUpIntervalMs).unref();
   }
 
+  if (env.USERBOT_HEARTBEAT_INTERVAL_MS > 0) {
+    setInterval(() => {
+      void runHeartbeat();
+    }, env.USERBOT_HEARTBEAT_INTERVAL_MS).unref();
+  }
+
   if (configuredStartupBackfillLimit > maxStartupBackfillLimit) {
     await writeWarn("LISTENER_STARTUP_BACKFILL_LIMIT capped to protect from duplicate/flood bursts", {
       configured: configuredStartupBackfillLimit,
@@ -1966,6 +2042,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     });
   }
 
+  await writeInfo("Userbot heartbeat watchdog configured", {
+    intervalMs: env.USERBOT_HEARTBEAT_INTERVAL_MS,
+    maxFailures: env.USERBOT_HEARTBEAT_MAX_FAILURES
+  });
+
   for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
     const canWrite = await resolveUserbotWriteCapability(sourceChatIdNumber);
     await writeInfo("Passenger source write permission", {
@@ -1987,6 +2068,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     startupBackfillLimit,
     periodicCatchUpEnabled,
     periodicCatchUpLimit,
+    heartbeatIntervalMs: env.USERBOT_HEARTBEAT_INTERVAL_MS,
+    heartbeatMaxFailures: env.USERBOT_HEARTBEAT_MAX_FAILURES,
     passengerGroupAutoReplies: env.PASSENGER_GROUP_AUTO_REPLIES,
     sendDriverAdWarnings: env.SEND_DRIVER_AD_WARNINGS,
     userbotReadOnly: env.USERBOT_READ_ONLY,

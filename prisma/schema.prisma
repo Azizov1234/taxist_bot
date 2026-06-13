@@ -51,6 +51,11 @@ enum LogLevel {
   ERROR
 }
 
+enum AdminRole {
+  SUPERADMIN
+  ADMIN
+}
+
 model Lead {
   id                 Int        @id @default(autoincrement())
   sourceChatId       String
@@ -134,4 +139,18 @@ model RuntimeConfig {
   value     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model AdminUser {
+  id                  Int       @id @default(autoincrement())
+  telegramId          BigInt?   @unique
+  username            String?   @unique
+  role                AdminRole @default(ADMIN)
+  isActive            Boolean   @default(true)
+  createdByTelegramId BigInt?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([role, isActive])
+  @@index([isActive, createdAt])
 }
