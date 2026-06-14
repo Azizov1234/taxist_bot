@@ -57,6 +57,11 @@ interface SourceScanStats {
   skippedReasonCounter: Map<string, number>;
 }
 
+interface CachedTelegramIdentity {
+  title: string;
+  username: string | null;
+}
+
 const KAMSAMOL_SOURCE_USERNAME = "KamsamoltaksiN1";
 const ADMIN_COMMAND_HELP_TEXT =
   "Mavjud buyruqlar: .help, .status, .stats, .test <matn>, .sources, .source_probe, .pause, .resume, .last <son>, .keywords <tur>, .keyword_count, .add_keyword <tur> <gap> <kuch>, .reload_keywords";
@@ -188,6 +193,13 @@ function getEntityUsername(entity: any): string | null {
   return normalizeTelegramChatUsername(toText(entity?.username || entity?.usernames?.[0]?.username));
 }
 
+function buildCachedTelegramIdentity(entity: any, fallbackTitle: string): CachedTelegramIdentity {
+  return {
+    title: formatEntityName(entity) || fallbackTitle,
+    username: getEntityUsername(entity)
+  };
+}
+
 function getMessageDate(rawDate: unknown): Date {
   if (rawDate instanceof Date) {
     return rawDate;
@@ -260,6 +272,52 @@ function applyKnownSourceUsernameFallback(payload: UnifiedIncomingMessage): void
   if (!payload.sourceChatUsername && isKamsamolSource(payload)) {
     payload.sourceChatUsername = KAMSAMOL_SOURCE_USERNAME;
   }
+}
+
+function truncateAdminNotifyText(text: string, maxLength = 700): string {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function buildAdminSourceNotifyMessage(payload: UnifiedIncomingMessage, eventAgeMs: number | null): string {
+  const sender = payload.senderUsername ? `@${payload.senderUsername}` : payload.senderFullName || payload.senderId;
+  const source = payload.sourceChatUsername ? `@${payload.sourceChatUsername}` : payload.sourceChatTitle || payload.sourceChatId;
+  const ageLine = eventAgeMs === null ? "eventAgeMs=-" : `eventAgeMs=${eventAgeMs}`;
+
+  return [
+    "SOURCE MESSAGE RECEIVED",
+    `source=${source}`,
+    `chatId=${payload.sourceChatId}`,
+    `messageId=${payload.sourceMessageId}`,
+    `sender=${sender}`,
+    ageLine,
+    "",
+    truncateAdminNotifyText(payload.text)
+  ].join("\n");
+}
+
+function notifyAdminAboutWatchedSource(payload: UnifiedIncomingMessage, eventAgeMs: number | null): void {
+  const sourceChatIdNumber = toNumericId(payload.sourceChatId);
+  if (
+    sourceChatIdNumber === null ||
+    !env.ADMIN_TELEGRAM_ID ||
+    !env.ADMIN_NOTIFY_SOURCE_CHAT_IDS.includes(sourceChatIdNumber)
+  ) {
+    return;
+  }
+
+  void sendTelegramBotMessage(env.ADMIN_TELEGRAM_ID, buildAdminSourceNotifyMessage(payload, eventAgeMs)).catch((error) => {
+    void writeWarn("Admin watched source notification failed", {
+      sourceChatId: payload.sourceChatId,
+      sourceMessageId: payload.sourceMessageId,
+      adminChatId: env.ADMIN_TELEGRAM_ID,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
 }
 
 function getEffectiveDriverChatIdForPayload(payload: UnifiedIncomingMessage, defaultDriverChatId: number): number {
@@ -633,6 +691,11 @@ async function handleAdminCommand(
   state: ListenerState,
   guardUserbotChannelWrite?: UserbotChannelWriteGuard
 ): Promise<boolean> {
+  const trimmedCommandText = commandText.trim();
+  if (!trimmedCommandText.startsWith(".")) {
+    return false;
+  }
+
   const senderId = event.message.senderId?.toString();
   const senderUserId = senderId ? toPositiveUserId(senderId) : null;
   if (senderUserId === null) {
@@ -647,11 +710,6 @@ async function handleAdminCommand(
   }
 
   if (!(await isAdminIdentity(identity))) {
-    return false;
-  }
-
-  const trimmedCommandText = commandText.trim();
-  if (!trimmedCommandText.startsWith(".")) {
     return false;
   }
 
@@ -894,42 +952,86 @@ async function handleAdminCommand(
   return true;
 }
 
-async function buildUnifiedPayload(client: TelegramClient, event: NewMessageEvent): Promise<UnifiedIncomingMessage | null> {
+async function buildUnifiedPayload(
+  client: TelegramClient,
+  event: NewMessageEvent,
+  cache?: {
+    sourceIdentityByChatId: Map<number, CachedTelegramIdentity>;
+    senderIdentityByUserId: Map<string, CachedTelegramIdentity>;
+  }
+): Promise<UnifiedIncomingMessage | null> {
   const messageText = toText(event.message.message).trim();
   if (!messageText) {
     return null;
   }
 
-  let resolvedSource:
-    | {
-        sourceChatId: string;
-        sourceChatIdNumber: number;
-        sourceRegion: SourceRegion;
-        driverChatId: number;
-        chat: any | null;
-      }
-    | null = null;
+  const peerId = event.message.peerId;
+  const peerChatIdNumber = peerId ? toNumberId(getPeerId(peerId, true)) : null;
+  let sourceChatIdNumber = peerChatIdNumber;
+  let sourceRegion = sourceChatIdNumber === null ? null : getSourceRegionByPassengerChatId(sourceChatIdNumber);
+  let driverChatId = sourceChatIdNumber === null ? null : getDriverChatIdBySourceChatId(sourceChatIdNumber);
+  let chat: any | null = (event as any).chat ?? (event.message as any).chat ?? null;
 
-  try {
-    resolvedSource = await resolveSourceChat(client, event);
-  } catch {
+  if (sourceChatIdNumber === null || !sourceRegion || driverChatId === null) {
+    try {
+      const resolvedSource = await resolveSourceChat(client, event);
+      sourceChatIdNumber = resolvedSource.sourceChatIdNumber;
+      sourceRegion = resolvedSource.sourceRegion;
+      driverChatId = resolvedSource.driverChatId;
+      chat = resolvedSource.chat;
+    } catch {
+      return null;
+    }
+  }
+
+  if (sourceChatIdNumber === null || !sourceRegion || driverChatId === null) {
     return null;
   }
 
-  const sourceChatId = resolvedSource.sourceChatId;
-  const chat = resolvedSource.chat ?? (await event.getChat().catch(() => null));
-  const sender = await event.message.getSender();
+  const sourceChatId = String(sourceChatIdNumber);
+  const cachedSourceIdentity = cache?.sourceIdentityByChatId.get(sourceChatIdNumber);
+  if (!cachedSourceIdentity && chat) {
+    cache?.sourceIdentityByChatId.set(sourceChatIdNumber, buildCachedTelegramIdentity(chat, sourceChatId));
+  } else if (!cachedSourceIdentity && cache) {
+    const sourceChatIdToCache = sourceChatIdNumber;
+    void client
+      .getEntity(sourceChatIdToCache)
+      .then((entity) => {
+        cache.sourceIdentityByChatId.set(sourceChatIdToCache, buildCachedTelegramIdentity(entity, sourceChatId));
+      })
+      .catch(() => undefined);
+  }
+
   const senderIdRaw = event.message.senderId?.toString();
 
   const senderId = senderIdRaw ?? `chat:${sourceChatId}`;
-  const senderFullName = formatEntityName(sender) || formatEntityName(chat) || senderId;
-  const senderUsername = toText((sender as any)?.username || (sender as any)?.usernames?.[0]?.username) || null;
-  const sourceChatUsername = getEntityUsername(chat);
-  const sourceChatTitle = formatEntityName(chat) || sourceChatId;
+  const cachedSenderIdentity = senderIdRaw ? cache?.senderIdentityByUserId.get(senderIdRaw) : undefined;
+  const eventSender = (event.message as any).sender ?? (event as any).sender ?? null;
+  const eventSenderIdentity = !cachedSenderIdentity && eventSender ? buildCachedTelegramIdentity(eventSender, senderId) : null;
+  if (eventSenderIdentity && senderIdRaw && cache) {
+    cache.senderIdentityByUserId.set(senderIdRaw, eventSenderIdentity);
+  }
+
+  const senderFullName = cachedSenderIdentity?.title || eventSenderIdentity?.title || senderId;
+  const senderUsername = cachedSenderIdentity?.username ?? eventSenderIdentity?.username ?? null;
+  if (!cachedSenderIdentity && !eventSenderIdentity && senderIdRaw && cache) {
+    void event.message
+      .getSender()
+      .then((sender) => {
+        if (sender) {
+          cache.senderIdentityByUserId.set(senderIdRaw, buildCachedTelegramIdentity(sender, senderId));
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  const latestCachedSourceIdentity = cache?.sourceIdentityByChatId.get(sourceChatIdNumber);
+  const sourceChatUsername = latestCachedSourceIdentity?.username ?? getEntityUsername(chat);
+  const sourceChatTitle = latestCachedSourceIdentity?.title ?? (formatEntityName(chat) || sourceChatId);
 
   return {
     sourceChatId,
-    sourceRegion: resolvedSource.sourceRegion,
+    sourceRegion,
     sourceChatTitle,
     sourceChatUsername,
     sourceMessageId: event.message.id,
@@ -1042,6 +1144,8 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   const ignoredSourceLogCache = new Set<number>();
   const deleteCapabilityBySourceChat = new Map<number, boolean>();
   const writeCapabilityByChatId = new Map<number, boolean>();
+  const sourceIdentityByChatId = new Map<number, CachedTelegramIdentity>();
+  const senderIdentityByUserId = new Map<string, CachedTelegramIdentity>();
   const sourceAdminByChatAndUser = new Map<string, boolean>();
   const driverMembershipByChatAndUser = new Map<string, boolean>();
   const driverInputPeerByChatId = new Map<number, any>();
@@ -1058,6 +1162,22 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   let listenerBlockedBySessionAuthError = false;
   let sessionAuthShutdownScheduled = false;
   let heartbeatFailures = 0;
+  const shouldResolveSenderProtectionFlags =
+    env.SEND_DRIVER_AD_WARNINGS ||
+    (!env.USERBOT_READ_ONLY && (env.DELETE_SOURCE_MESSAGE_IF_ADMIN || env.DELETE_IGNORED_MESSAGE_IF_ADMIN));
+
+  const warmSourceIdentityCache = (sourceChatIdNumber: number): void => {
+    if (sourceIdentityByChatId.has(sourceChatIdNumber)) {
+      return;
+    }
+
+    void client
+      .getEntity(sourceChatIdNumber)
+      .then((entity) => {
+        sourceIdentityByChatId.set(sourceChatIdNumber, buildCachedTelegramIdentity(entity, String(sourceChatIdNumber)));
+      })
+      .catch(() => undefined);
+  };
 
   const scheduleSessionAuthShutdown = async (errorType: SessionAuthErrorType, recoveryHint: string): Promise<void> => {
     if (sessionAuthShutdownScheduled) {
@@ -1667,9 +1787,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       built.payload.isStartupBackfill = true;
 
       const effectiveDriverChatId = getEffectiveDriverChatIdForPayload(built.payload, driverChatId);
-      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, built.payload.senderId);
-      built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
-      built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
+      if (shouldResolveSenderProtectionFlags) {
+        const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, built.payload.senderId);
+        built.payload.isSourceAdmin = senderFlags.isSourceAdmin;
+        built.payload.isDriverChatMember = senderFlags.isDriverChatMember;
+      }
 
       const actions = buildActions(
         built.payload,
@@ -1876,6 +1998,9 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
   };
 
   const handler = async (event: NewMessageEvent): Promise<void> => {
+    const handlerStartedAtMs = Date.now();
+    let eventAgeMs: number | null = null;
+
     try {
       if (listenerBlockedBySessionAuthError) {
         return;
@@ -1892,12 +2017,16 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       }
 
       const eventDateMs = getMessageDate(event.message.date).getTime();
+      eventAgeMs = Math.max(0, handlerStartedAtMs - eventDateMs);
       const backfillWindowMs = Math.max(0, env.LISTENER_BACKFILL_SECONDS) * 1000;
       if (eventDateMs < listenerStartedAtMs - backfillWindowMs) {
         return;
       }
 
-      const payload = await buildUnifiedPayload(client, event);
+      const payload = await buildUnifiedPayload(client, event, {
+        sourceIdentityByChatId,
+        senderIdentityByUserId
+      });
       if (!payload) {
         const peerId = event.message.peerId;
         if (peerId) {
@@ -1930,6 +2059,7 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
         return;
       }
       applyKnownSourceUsernameFallback(payload);
+      notifyAdminAboutWatchedSource(payload, eventAgeMs);
 
       const driverChatId = getDriverChatIdBySourceChatId(sourceChatIdNumber);
       if (driverChatId === null) {
@@ -1943,9 +2073,11 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
 
       markSeenSourceMessageId(sourceChatIdNumber, payload.sourceMessageId);
 
-      const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, payload.senderId);
-      payload.isSourceAdmin = senderFlags.isSourceAdmin;
-      payload.isDriverChatMember = senderFlags.isDriverChatMember;
+      if (shouldResolveSenderProtectionFlags) {
+        const senderFlags = await resolveSenderProtectionFlags(sourceChatIdNumber, effectiveDriverChatId, payload.senderId);
+        payload.isSourceAdmin = senderFlags.isSourceAdmin;
+        payload.isDriverChatMember = senderFlags.isDriverChatMember;
+      }
 
       const canDeleteFromSource = env.DELETE_SOURCE_MESSAGE_IF_ADMIN ? await resolveDeleteCapability(sourceChatIdNumber) : false;
       const actions = buildActions(
@@ -1961,22 +2093,30 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
       const messageLogFields = buildInboundMessageLogFields(payload.text);
 
       if (result.processed) {
-        await writeInfo("Userbot message processed", {
+        void writeInfo("Userbot message processed", {
           sourceChatId: payload.sourceChatId,
           sourceRegion: payload.sourceRegion,
           driverChatId: effectiveDriverChatId,
           sourceMessageId: payload.sourceMessageId,
           status: LeadStatus.SENT,
           reason: result.reason,
+          eventAgeMs,
+          processingMs: Date.now() - handlerStartedAtMs,
+          configuredOutboundMinDelayMs: outboundMinDelayMs,
+          configuredOutboundJitterMs: outboundJitterMs,
           ...messageLogFields
         });
       } else {
-        await writeWarn("Userbot message skipped", {
+        void writeWarn("Userbot message skipped", {
           sourceChatId: payload.sourceChatId,
           sourceRegion: payload.sourceRegion,
           driverChatId: effectiveDriverChatId,
           sourceMessageId: payload.sourceMessageId,
           reason: result.reason,
+          eventAgeMs,
+          processingMs: Date.now() - handlerStartedAtMs,
+          configuredOutboundMinDelayMs: outboundMinDelayMs,
+          configuredOutboundJitterMs: outboundJitterMs,
           ...messageLogFields
         });
       }
@@ -1995,6 +2135,10 @@ export async function startUserbotListener(client: TelegramClient): Promise<void
     handler,
     new NewMessage(env.LISTENER_PROCESS_OUTGOING_MESSAGES ? {} : { incoming: true })
   );
+
+  for (const sourceChatIdNumber of env.PASSENGER_CHAT_IDS) {
+    warmSourceIdentityCache(sourceChatIdNumber);
+  }
 
   void resolveConfiguredPassengerUsernameSources(client).catch(async (error) => {
     await writeWarn("Failed to resolve configured passenger usernames", {

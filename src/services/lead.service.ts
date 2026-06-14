@@ -1016,49 +1016,50 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     Number.isInteger(sourceChatIdNumber) && Number.isFinite(sourceChatIdNumber) ? getDriverChatIdBySourceChatId(sourceChatIdNumber) : null;
   const targetDriverChatIdBigInt = targetDriverChatId !== null ? BigInt(targetDriverChatId) : null;
 
-  const existingByMessage = await prisma.lead.findUnique({
-    where: {
-      sourceChatId_sourceMessageId: {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId
+  if (payload.isStartupBackfill === true) {
+    const existingByMessage = await prisma.lead.findUnique({
+      where: {
+        sourceChatId_sourceMessageId: {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId
+        }
       }
-    }
-  });
+    });
 
-  if (existingByMessage) {
-    const shouldRetryDelivery =
-      existingByMessage.status === LeadStatus.NEW ||
-      existingByMessage.status === LeadStatus.ERROR;
-    const shouldRetryForDriverRemap =
-      payload.isStartupBackfill === true &&
-      targetDriverChatIdBigInt !== null &&
-      existingByMessage.targetDriverChatId !== targetDriverChatIdBigInt;
+    if (existingByMessage) {
+      const shouldRetryDelivery =
+        existingByMessage.status === LeadStatus.NEW ||
+        existingByMessage.status === LeadStatus.ERROR;
+      const shouldRetryForDriverRemap =
+        targetDriverChatIdBigInt !== null &&
+        existingByMessage.targetDriverChatId !== targetDriverChatIdBigInt;
 
-    if (shouldRetryDelivery || shouldRetryForDriverRemap) {
-      await writeWarn("Existing source message requires re-delivery", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
-        existingLeadId: existingByMessage.id,
-        existingStatus: existingByMessage.status,
-        existingTargetDriverChatId: existingByMessage.targetDriverChatId?.toString() ?? null,
-        targetDriverChatId: targetDriverChatIdBigInt?.toString() ?? null,
-        retryReason: shouldRetryForDriverRemap ? "driver_chat_remap" : "unsent_or_error"
-      });
+      if (shouldRetryDelivery || shouldRetryForDriverRemap) {
+        await writeWarn("Existing source message requires re-delivery", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          existingLeadId: existingByMessage.id,
+          existingStatus: existingByMessage.status,
+          existingTargetDriverChatId: existingByMessage.targetDriverChatId?.toString() ?? null,
+          targetDriverChatId: targetDriverChatIdBigInt?.toString() ?? null,
+          retryReason: shouldRetryForDriverRemap ? "driver_chat_remap" : "unsent_or_error"
+        });
 
-      await prisma.lead.delete({
-        where: { id: existingByMessage.id }
-      });
-    } else {
-      await writeWarn("Lead skipped", {
-        sourceChatId: payload.sourceChatId,
-        sourceMessageId: payload.sourceMessageId,
-        existingLeadId: existingByMessage.id,
-        existingStatus: existingByMessage.status,
-        skipReason: "Duplicate source message",
-        ...messageLogFields
-      });
+        await prisma.lead.delete({
+          where: { id: existingByMessage.id }
+        });
+      } else {
+        await writeWarn("Lead skipped", {
+          sourceChatId: payload.sourceChatId,
+          sourceMessageId: payload.sourceMessageId,
+          existingLeadId: existingByMessage.id,
+          existingStatus: existingByMessage.status,
+          skipReason: "Duplicate source message",
+          ...messageLogFields
+        });
 
-      return { processed: false, reason: "Duplicate source message" };
+        return { processed: false, reason: "Duplicate source message" };
+      }
     }
   }
 
@@ -1256,7 +1257,7 @@ export async function processIncomingLead(payload: UnifiedIncomingMessage, actio
     !isCargo &&
     !isSpam;
 
-  await writeInfo("Message classification", {
+  void writeInfo("Message classification", {
     sourceChatId: payload.sourceChatId,
     sourceMessageId: payload.sourceMessageId,
     ...messageLogFields,
@@ -1652,7 +1653,7 @@ const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(ph
     }
 
     if (!sendResult.forwardedOriginal) {
-      await writeWarn("Original source message could not be forwarded, link/text fallback was sent", {
+      void writeWarn("Original source message could not be forwarded, link/text fallback was sent", {
         sourceChatId: payload.sourceChatId,
         sourceMessageId: payload.sourceMessageId,
         leadId: createdLead.id,
@@ -1660,7 +1661,7 @@ const canDriversContactPassenger = Boolean(payload.senderUsername) || Boolean(ph
       });
     }
 
-    await writeInfo("Lead sent to driver", {
+    void writeInfo("Lead sent to driver", {
       sourceChatId: payload.sourceChatId,
       sourceMessageId: payload.sourceMessageId,
       senderId: payload.senderId,

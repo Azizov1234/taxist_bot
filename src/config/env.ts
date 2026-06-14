@@ -134,6 +134,7 @@ const envSchema = z.object({
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
   ADMIN_TELEGRAM_IDS: optionalStringSchema,
   ADMIN_TELEGRAM_USERNAMES: optionalStringSchema,
+  ADMIN_NOTIFY_SOURCE_CHAT_IDS: optionalStringSchema,
   LOG_CHANNEL_ID: optionalChatIdSchema,
   DATABASE_URL: z.preprocess((value) => emptyToUndefined(value), z.string().min(1, "DATABASE_URL is required")),
   AI_ENABLED: optionalBooleanSchema,
@@ -358,6 +359,7 @@ const adminTelegramIds = [
   ])
 ];
 const adminTelegramUsernames = parseChatUsernameList(parsed.data.ADMIN_TELEGRAM_USERNAMES);
+const adminNotifySourceChatIds = parseChatIdList(parsed.data.ADMIN_NOTIFY_SOURCE_CHAT_IDS);
 
 requireRuntimeConfig(adminTelegramIds.length > 0 || adminTelegramUsernames.length > 0, "ADMIN_TELEGRAM_ID or ADMIN_TELEGRAM_USERNAMES is required");
 
@@ -484,6 +486,7 @@ export const env = {
   ADMIN_TELEGRAM_ID: primaryAdminTelegramId,
   ADMIN_TELEGRAM_IDS: adminTelegramIds,
   ADMIN_TELEGRAM_USERNAMES: adminTelegramUsernames,
+  ADMIN_NOTIFY_SOURCE_CHAT_IDS: adminNotifySourceChatIds,
   LOG_CHANNEL_ID: parsed.data.LOG_CHANNEL_ID,
   DATABASE_URL: parsed.data.DATABASE_URL,
   AI_ENABLED: aiEnabled,

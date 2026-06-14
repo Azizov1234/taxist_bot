@@ -96,6 +96,7 @@ function isPassengerContactButtonError(error: unknown): boolean {
 }
 
 export async function sendDriverLeadViaBotBridge(params: DriverLeadDeliveryParams): Promise<DriverSendResult> {
+  const startedAtMs = Date.now();
   const contactCandidates = buildPassengerContactCandidates(params.payload, params.originalText);
   let sent: Awaited<ReturnType<typeof sendTelegramBotMessage>> = null;
 
@@ -141,13 +142,14 @@ export async function sendDriverLeadViaBotBridge(params: DriverLeadDeliveryParam
     throw new Error("TELEGRAM_BOT_TOKEN is required for bot driver delivery");
   }
 
-  await writeInfo("Driver lead delivered via Bot API bridge", {
+  void writeInfo("Driver lead delivered via Bot API bridge", {
     sourceChatId: params.payload.sourceChatId,
     sourceRegion: params.payload.sourceRegion ?? null,
     sourceMessageId: params.payload.sourceMessageId,
     driverChatId: params.driverChatId,
     driverMessageId: sent.messageId,
     originalTextLength: params.originalText.length,
+    deliveryMs: Date.now() - startedAtMs,
     contactCandidateTypes: contactCandidates.map((candidate) => candidate.type)
   });
 
