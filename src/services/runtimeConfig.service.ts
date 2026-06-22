@@ -9,21 +9,24 @@ import {
 } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
 
-const SOURCE_REGIONS: SourceRegion[] = ["TASHKENT", "GULISTON", "KOMSOMOL"];
+const SOURCE_REGIONS: SourceRegion[] = ["TASHKENT", "GULISTON", "KOMSOMOL", "ANDIJON"];
 const RUNTIME_CONFIG_KEYS = [
   "SOURCE_CHAT_IDS",
   "PASSENGER_CHAT_IDS",
   "PASSENGER_CHAT_IDS_TASHKENT",
   "PASSENGER_CHAT_IDS_GULISTON",
   "PASSENGER_CHAT_IDS_KOMSOMOL",
+  "PASSENGER_CHAT_IDS_ANDIJON",
   "PASSENGER_CHAT_USERNAMES",
   "PASSENGER_CHAT_USERNAMES_TASHKENT",
   "PASSENGER_CHAT_USERNAMES_GULISTON",
   "PASSENGER_CHAT_USERNAMES_KOMSOMOL",
+  "PASSENGER_CHAT_USERNAMES_ANDIJON",
   "DRIVER_CHAT_ID",
   "DRIVER_CHAT_ID_TASHKENT",
   "DRIVER_CHAT_ID_GULISTON",
   "DRIVER_CHAT_ID_KOMSOMOL",
+  "DRIVER_CHAT_ID_ANDIJON",
   "PASSENGER_GROUP_AUTO_REPLIES",
   "SEND_PRIVATE_ACK_TO_PASSENGER",
   "DELETE_SOURCE_MESSAGE_IF_ADMIN",
@@ -107,6 +110,19 @@ export function parsePassengerSourceInput(rawValue: string, currentChatId?: numb
 
 export function parseSourceRegionInput(rawValue: string): SourceRegion | null {
   const normalized = rawValue.trim().toUpperCase();
+  const aliases: Record<string, SourceRegion> = {
+    ANDIJON: "ANDIJON",
+    ANDIJAN: "ANDIJON",
+    KOMSOMOL: "KOMSOMOL",
+    GULISTON: "GULISTON",
+    TASHKENT: "TASHKENT",
+    TOSHKENT: "TASHKENT"
+  };
+  const resolved = aliases[normalized];
+  if (resolved) {
+    return resolved;
+  }
+
   if (SOURCE_REGIONS.includes(normalized as SourceRegion)) {
     return normalized as SourceRegion;
   }
@@ -171,7 +187,7 @@ function applyRuntimeConfigValue(key: string, value: string): void {
     return;
   }
 
-  const passengerIdsRegion = key.match(/^PASSENGER_CHAT_IDS_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  const passengerIdsRegion = key.match(/^PASSENGER_CHAT_IDS_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
   if (passengerIdsRegion) {
     setPassengerChatList(passengerIdsRegion, value);
     return;
@@ -182,7 +198,7 @@ function applyRuntimeConfigValue(key: string, value: string): void {
     return;
   }
 
-  const passengerUsernamesRegion = key.match(/^PASSENGER_CHAT_USERNAMES_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  const passengerUsernamesRegion = key.match(/^PASSENGER_CHAT_USERNAMES_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
   if (passengerUsernamesRegion) {
     setPassengerUsernameList(passengerUsernamesRegion, value);
     return;
@@ -200,7 +216,7 @@ function applyRuntimeConfigValue(key: string, value: string): void {
     return;
   }
 
-  const driverRegion = key.match(/^DRIVER_CHAT_ID_(TASHKENT|GULISTON|KOMSOMOL)$/u)?.[1] as SourceRegion | undefined;
+  const driverRegion = key.match(/^DRIVER_CHAT_ID_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
   if (driverRegion) {
     const chatId = parseChatId(value);
     if (chatId !== null) {
@@ -381,8 +397,10 @@ function setEnvDriverRegion(region: SourceRegion, chatId: number): void {
     env.DRIVER_CHAT_ID_TASHKENT = chatId;
   } else if (region === "GULISTON") {
     env.DRIVER_CHAT_ID_GULISTON = chatId;
-  } else {
+  } else if (region === "KOMSOMOL") {
     env.DRIVER_CHAT_ID_KOMSOMOL = chatId;
+  } else {
+    env.DRIVER_CHAT_ID_ANDIJON = chatId;
   }
 
   const driverIds = uniqueNumbers(SOURCE_REGIONS.map((item) => env.DRIVER_CHAT_ID_BY_REGION[item]));
@@ -475,9 +493,11 @@ export function getRuntimeConfigText(adminSummary = "-"): string {
     `Toshkent: ${env.PASSENGER_CHAT_IDS_TASHKENT.length}`,
     `Guliston: ${env.PASSENGER_CHAT_IDS_GULISTON.length}`,
     `Komsomol: ${env.PASSENGER_CHAT_IDS_KOMSOMOL.length}`,
+    `Andijon: ${env.PASSENGER_CHAT_IDS_ANDIJON.length}`,
     "",
     `🚘 Haydovchi TOSHKENT: ${env.DRIVER_CHAT_ID_TASHKENT ?? "-"}`,
     `🚘 Haydovchi GULISTON: ${env.DRIVER_CHAT_ID_GULISTON ?? "-"}`,
-    `🚘 Haydovchi KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`
+    `🚘 Haydovchi KOMSOMOL: ${env.DRIVER_CHAT_ID_KOMSOMOL ?? "-"}`,
+    `🚘 Haydovchi ANDIJON: ${env.DRIVER_CHAT_ID_ANDIJON ?? "-"}`
   ].join("\n");
 }
