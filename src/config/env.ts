@@ -1,4 +1,4 @@
-﻿import dotenv from "dotenv";
+import dotenv from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -73,7 +73,7 @@ const adminCommandReplyModeSchema = z.enum(["bot", "userbot", "off"]);
 const driverDeliveryModeSchema = z.enum(["auto", "bot", "userbot"]);
 const telegramLoginModeSchema = z.enum(["auto", "sms", "qr"]);
 const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter", "cloudflare"]);
-const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON", "KOMSOMOL"]);
+const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON", "KOMSOMOL", "ANDIJON"]);
 
 export type SourceRegion = z.infer<typeof sourceRegionSchema>;
 const SOURCE_REGIONS: SourceRegion[] = [...sourceRegionSchema.options];
@@ -121,14 +121,17 @@ const envSchema = z.object({
   PASSENGER_CHAT_IDS_TASHKENT: optionalStringSchema,
   PASSENGER_CHAT_IDS_GULISTON: optionalStringSchema,
   PASSENGER_CHAT_IDS_KOMSOMOL: optionalStringSchema,
+  PASSENGER_CHAT_IDS_ANDIJON: optionalStringSchema,
   PASSENGER_CHAT_USERNAMES: optionalStringSchema,
   PASSENGER_CHAT_USERNAMES_TASHKENT: optionalStringSchema,
   PASSENGER_CHAT_USERNAMES_GULISTON: optionalStringSchema,
   PASSENGER_CHAT_USERNAMES_KOMSOMOL: optionalStringSchema,
+  PASSENGER_CHAT_USERNAMES_ANDIJON: optionalStringSchema,
   DRIVER_CHAT_ID: optionalChatIdSchema,
   DRIVER_CHAT_ID_TASHKENT: optionalChatIdSchema,
   DRIVER_CHAT_ID_GULISTON: optionalChatIdSchema,
   DRIVER_CHAT_ID_KOMSOMOL: optionalChatIdSchema,
+  DRIVER_CHAT_ID_ANDIJON: optionalChatIdSchema,
   PASSENGER_HELP_GROUP_LINK: optionalStringSchema,
   DRIVER_PREMIUM_GROUP_LINK: optionalStringSchema,
   ADMIN_TELEGRAM_ID: optionalChatIdSchema,
@@ -300,13 +303,15 @@ const legacyPassengerChatIds = [...new Set([...parseChatIdList(parsed.data.SOURC
 const passengerChatIdsByRegion: Record<SourceRegion, number[]> = {
   TASHKENT: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_TASHKENT),
   GULISTON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_GULISTON),
-  KOMSOMOL: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_KOMSOMOL)
+  KOMSOMOL: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_KOMSOMOL),
+  ANDIJON: parseChatIdList(parsed.data.PASSENGER_CHAT_IDS_ANDIJON)
 };
 const legacyPassengerChatUsernames = parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES);
 const passengerChatUsernamesByRegion: Record<SourceRegion, string[]> = {
   TASHKENT: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_TASHKENT),
   GULISTON: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_GULISTON),
-  KOMSOMOL: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_KOMSOMOL)
+  KOMSOMOL: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_KOMSOMOL),
+  ANDIJON: parseChatUsernameList(parsed.data.PASSENGER_CHAT_USERNAMES_ANDIJON)
 };
 
 if (SOURCE_REGIONS.every((region) => passengerChatIdsByRegion[region].length === 0) && legacyPassengerChatIds.length > 0) {
@@ -346,7 +351,8 @@ const legacyDriverChatId = parsed.data.DRIVER_CHAT_ID;
 const driverChatIdByRegion: Record<SourceRegion, number | null> = {
   TASHKENT: parsed.data.DRIVER_CHAT_ID_TASHKENT ?? legacyDriverChatId ?? null,
   GULISTON: parsed.data.DRIVER_CHAT_ID_GULISTON ?? legacyDriverChatId ?? null,
-  KOMSOMOL: parsed.data.DRIVER_CHAT_ID_KOMSOMOL ?? legacyDriverChatId ?? null
+  KOMSOMOL: parsed.data.DRIVER_CHAT_ID_KOMSOMOL ?? legacyDriverChatId ?? null,
+  ANDIJON: parsed.data.DRIVER_CHAT_ID_ANDIJON ?? legacyDriverChatId ?? null
 };
 
 const driverChatIds = [...new Set(Object.values(driverChatIdByRegion).filter((chatId): chatId is number => chatId !== null))];
@@ -469,16 +475,19 @@ export const env = {
   PASSENGER_CHAT_IDS_TASHKENT: passengerChatIdsByRegion.TASHKENT,
   PASSENGER_CHAT_IDS_GULISTON: passengerChatIdsByRegion.GULISTON,
   PASSENGER_CHAT_IDS_KOMSOMOL: passengerChatIdsByRegion.KOMSOMOL,
+  PASSENGER_CHAT_IDS_ANDIJON: passengerChatIdsByRegion.ANDIJON,
   PASSENGER_CHAT_IDS_BY_REGION: passengerChatIdsByRegion,
   PASSENGER_CHAT_USERNAMES: passengerChatUsernames,
   PASSENGER_CHAT_USERNAMES_TASHKENT: passengerChatUsernamesByRegion.TASHKENT,
   PASSENGER_CHAT_USERNAMES_GULISTON: passengerChatUsernamesByRegion.GULISTON,
   PASSENGER_CHAT_USERNAMES_KOMSOMOL: passengerChatUsernamesByRegion.KOMSOMOL,
+  PASSENGER_CHAT_USERNAMES_ANDIJON: passengerChatUsernamesByRegion.ANDIJON,
   PASSENGER_CHAT_USERNAMES_BY_REGION: passengerChatUsernamesByRegion,
   DRIVER_CHAT_ID: driverChatId,
   DRIVER_CHAT_ID_TASHKENT: driverChatIdByRegion.TASHKENT,
   DRIVER_CHAT_ID_GULISTON: driverChatIdByRegion.GULISTON,
   DRIVER_CHAT_ID_KOMSOMOL: driverChatIdByRegion.KOMSOMOL,
+  DRIVER_CHAT_ID_ANDIJON: driverChatIdByRegion.ANDIJON,
   DRIVER_CHAT_IDS: driverChatIds,
   DRIVER_CHAT_ID_BY_REGION: driverChatIdByRegion,
   PASSENGER_HELP_GROUP_LINK: parsed.data.PASSENGER_HELP_GROUP_LINK ?? null,

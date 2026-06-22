@@ -35,7 +35,7 @@ type PendingAdminAction =
   | { type: "add_keyword"; region: SourceRegion; category: KeywordCategory };
 
 const pendingAdminActions = new Map<number, PendingAdminAction>();
-const SOURCE_REGIONS: SourceRegion[] = ["TASHKENT", "GULISTON", "KOMSOMOL"];
+const SOURCE_REGIONS: SourceRegion[] = ["TASHKENT", "GULISTON", "KOMSOMOL", "ANDIJON"];
 const TOGGLE_SETTINGS: RuntimeBooleanSetting[] = [
   "PASSENGER_GROUP_AUTO_REPLIES",
   "SEND_PRIVATE_ACK_TO_PASSENGER",
@@ -53,7 +53,8 @@ const KEYWORD_CATEGORIES: KeywordCategory[] = [
 const REGION_LABELS: Record<SourceRegion, string> = {
   TASHKENT: "Toshkent",
   GULISTON: "Guliston",
-  KOMSOMOL: "Komsomol"
+  KOMSOMOL: "Komsomol",
+  ANDIJON: "Andijon"
 };
 
 const CATEGORY_LABELS: Record<KeywordCategory, string> = {
@@ -704,7 +705,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const passengerRegionMatch = data.match(/^admin:add_passenger_region:(TASHKENT|GULISTON|KOMSOMOL)$/u);
+    const passengerRegionMatch = data.match(/^admin:add_passenger_region:(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u);
     if (passengerRegionMatch && adminId !== undefined) {
       const region = passengerRegionMatch[1] as SourceRegion;
       const pending: PendingAdminAction = { type: "add_passenger", region };
@@ -713,7 +714,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const driverRegionMatch = data.match(/^admin:set_driver_region:(TASHKENT|GULISTON|KOMSOMOL)$/u);
+    const driverRegionMatch = data.match(/^admin:set_driver_region:(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u);
     if (driverRegionMatch && adminId !== undefined) {
       const region = driverRegionMatch[1] as SourceRegion;
       const pending: PendingAdminAction = { type: "set_driver", region };
@@ -722,7 +723,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const keywordRegionMatch = data.match(/^admin:add_keyword_region:(TASHKENT|GULISTON|KOMSOMOL)$/u);
+    const keywordRegionMatch = data.match(/^admin:add_keyword_region:(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u);
     if (keywordRegionMatch) {
       const region = keywordRegionMatch[1] as SourceRegion;
       await ctx.editMessageText(`${REGION_LABELS[region]} uchun turini tanlang:`, {
@@ -731,7 +732,7 @@ export function registerAdminCommands(bot: Bot<Context>): void {
       return;
     }
 
-    const keywordCategoryMatch = data.match(/^admin:add_keyword_category:(TASHKENT|GULISTON|KOMSOMOL):(PASSENGER|DRIVER|CARGO|SPAM|AMBIGUOUS)$/u);
+    const keywordCategoryMatch = data.match(/^admin:add_keyword_category:(TASHKENT|GULISTON|KOMSOMOL|ANDIJON):(PASSENGER|DRIVER|CARGO|SPAM|AMBIGUOUS)$/u);
     if (keywordCategoryMatch && adminId !== undefined) {
       const region = keywordCategoryMatch[1] as SourceRegion;
       const category = keywordCategoryMatch[2] as KeywordCategory;
