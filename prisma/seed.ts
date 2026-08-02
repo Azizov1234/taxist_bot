@@ -20,12 +20,32 @@ async function upsertMany(words: readonly string[], type: KeywordType): Promise<
   }
 }
 
+async function seedRuntimeConfigs(): Promise<void> {
+  const configs: Record<string, string> = {
+    DRIVER_CHAT_ID_GULISTON: process.env.DRIVER_CHAT_ID_GULISTON || "-1004453401746",
+    DRIVER_CHAT_ID: process.env.DRIVER_CHAT_ID || "-1004453401746",
+    PASSENGER_CHAT_USERNAMES_GULISTON: process.env.PASSENGER_CHAT_USERNAMES_GULISTON || "Bekobod_Shirin_Guliston_taxi,ShirinTaksi,Guliston_Bekobod_taksi,guliston_bekabod_xovos",
+    PASSENGER_CHAT_USERNAMES: process.env.PASSENGER_CHAT_USERNAMES || ""
+  };
+
+  for (const [key, value] of Object.entries(configs)) {
+    if (value) {
+      await prisma.runtimeConfig.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value }
+      });
+    }
+  }
+}
+
 async function main(): Promise<void> {
   await upsertMany(DEFAULT_KEYWORDS.latin, KeywordType.LATIN);
   await upsertMany(DEFAULT_KEYWORDS.cyrillic, KeywordType.CYRILLIC);
   await upsertMany(DEFAULT_KEYWORDS.route, KeywordType.ROUTE);
   await upsertMany(DEFAULT_KEYWORDS.extra, KeywordType.EXTRA);
   const dictionarySeed = await seedKeywordDictionaryWithClient(prisma);
+  await seedRuntimeConfigs();
 
   console.log("Seed completed successfully");
   console.log(`passenger keywords count: ${dictionarySeed.counts.passenger}`);

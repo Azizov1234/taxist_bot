@@ -76,7 +76,7 @@ const aiProviderNameSchema = z.enum(["gemini", "groq", "cerebras", "openrouter",
 const sourceRegionSchema = z.enum(["TASHKENT", "GULISTON", "KOMSOMOL", "ANDIJON"]);
 
 export type SourceRegion = z.infer<typeof sourceRegionSchema>;
-const SOURCE_REGIONS: SourceRegion[] = [...sourceRegionSchema.options];
+export const SOURCE_REGIONS: SourceRegion[] = [...sourceRegionSchema.options];
 
 export type AIProviderName = z.infer<typeof aiProviderNameSchema>;
 
@@ -161,9 +161,29 @@ const envSchema = z.object({
   CLOUDFLARE_ACCOUNT_ID: optionalStringSchema,
   CLOUDFLARE_MODEL: optionalStringSchema,
   DELETE_SOURCE_MESSAGE_IF_ADMIN: optionalBooleanSchema,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN_TASHKENT: optionalBooleanSchema,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN_GULISTON: optionalBooleanSchema,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN_KOMSOMOL: optionalBooleanSchema,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN_ANDIJON: optionalBooleanSchema,
+
   DELETE_IGNORED_MESSAGE_IF_ADMIN: optionalBooleanSchema,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN_TASHKENT: optionalBooleanSchema,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN_GULISTON: optionalBooleanSchema,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN_KOMSOMOL: optionalBooleanSchema,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN_ANDIJON: optionalBooleanSchema,
+
   SEND_PRIVATE_ACK_TO_PASSENGER: optionalBooleanSchema,
+  SEND_PRIVATE_ACK_TO_PASSENGER_TASHKENT: optionalBooleanSchema,
+  SEND_PRIVATE_ACK_TO_PASSENGER_GULISTON: optionalBooleanSchema,
+  SEND_PRIVATE_ACK_TO_PASSENGER_KOMSOMOL: optionalBooleanSchema,
+  SEND_PRIVATE_ACK_TO_PASSENGER_ANDIJON: optionalBooleanSchema,
+
   PASSENGER_GROUP_AUTO_REPLIES: optionalBooleanSchema,
+  PASSENGER_GROUP_AUTO_REPLIES_TASHKENT: optionalBooleanSchema,
+  PASSENGER_GROUP_AUTO_REPLIES_GULISTON: optionalBooleanSchema,
+  PASSENGER_GROUP_AUTO_REPLIES_KOMSOMOL: optionalBooleanSchema,
+  PASSENGER_GROUP_AUTO_REPLIES_ANDIJON: optionalBooleanSchema,
+
   USERBOT_READ_ONLY: optionalBooleanSchema,
   SEND_DRIVER_AD_WARNINGS: optionalBooleanSchema,
   LISTENER_BACKFILL_SECONDS: optionalNumberSchema,
@@ -521,9 +541,33 @@ export const env = {
   CLOUDFLARE_ACCOUNT_ID: parsed.data.CLOUDFLARE_ACCOUNT_ID,
   CLOUDFLARE_MODEL: parsed.data.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.1-8b-instruct",
   DELETE_SOURCE_MESSAGE_IF_ADMIN: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN ?? true,
+  DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION: {
+    TASHKENT: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN_TASHKENT ?? null,
+    GULISTON: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN_GULISTON ?? null,
+    KOMSOMOL: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN_KOMSOMOL ?? null,
+    ANDIJON: parsed.data.DELETE_SOURCE_MESSAGE_IF_ADMIN_ANDIJON ?? null
+  } as Record<SourceRegion, boolean | null>,
   DELETE_IGNORED_MESSAGE_IF_ADMIN: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN ?? true,
+  DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION: {
+    TASHKENT: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN_TASHKENT ?? null,
+    GULISTON: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN_GULISTON ?? null,
+    KOMSOMOL: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN_KOMSOMOL ?? null,
+    ANDIJON: parsed.data.DELETE_IGNORED_MESSAGE_IF_ADMIN_ANDIJON ?? null
+  } as Record<SourceRegion, boolean | null>,
   SEND_PRIVATE_ACK_TO_PASSENGER: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER ?? true,
+  SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION: {
+    TASHKENT: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER_TASHKENT ?? null,
+    GULISTON: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER_GULISTON ?? null,
+    KOMSOMOL: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER_KOMSOMOL ?? null,
+    ANDIJON: parsed.data.SEND_PRIVATE_ACK_TO_PASSENGER_ANDIJON ?? null
+  } as Record<SourceRegion, boolean | null>,
   PASSENGER_GROUP_AUTO_REPLIES: passengerGroupAutoReplies,
+  PASSENGER_GROUP_AUTO_REPLIES_BY_REGION: {
+    TASHKENT: parsed.data.PASSENGER_GROUP_AUTO_REPLIES_TASHKENT ?? null,
+    GULISTON: parsed.data.PASSENGER_GROUP_AUTO_REPLIES_GULISTON ?? null,
+    KOMSOMOL: parsed.data.PASSENGER_GROUP_AUTO_REPLIES_KOMSOMOL ?? null,
+    ANDIJON: parsed.data.PASSENGER_GROUP_AUTO_REPLIES_ANDIJON ?? null
+  } as Record<SourceRegion, boolean | null>,
   USERBOT_READ_ONLY: parsed.data.USERBOT_READ_ONLY ?? true,
   SEND_DRIVER_AD_WARNINGS: sendDriverAdWarnings,
   LISTENER_BACKFILL_SECONDS: Math.round(listenerBackfillSeconds),
@@ -601,6 +645,34 @@ export function getDriverChatIdBySourceChatId(chatId: number): number | null {
 
 export function isDriverChatId(chatId: number): boolean {
   return env.DRIVER_CHAT_IDS.includes(chatId);
+}
+
+export function getDeleteSourceMessageIfAdmin(region?: SourceRegion | null): boolean {
+  if (region && env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[region] !== null) {
+    return env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[region]!;
+  }
+  return env.DELETE_SOURCE_MESSAGE_IF_ADMIN;
+}
+
+export function getDeleteIgnoredMessageIfAdmin(region?: SourceRegion | null): boolean {
+  if (region && env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[region] !== null) {
+    return env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[region]!;
+  }
+  return env.DELETE_IGNORED_MESSAGE_IF_ADMIN;
+}
+
+export function getPassengerGroupAutoReplies(region?: SourceRegion | null): boolean {
+  if (region && env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[region] !== null) {
+    return env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[region]!;
+  }
+  return env.PASSENGER_GROUP_AUTO_REPLIES;
+}
+
+export function getSendPrivateAckToPassenger(region?: SourceRegion | null): boolean {
+  if (region && env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[region] !== null) {
+    return env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[region]!;
+  }
+  return env.SEND_PRIVATE_ACK_TO_PASSENGER;
 }
 
 export function assertRuntimeRoutingConfigured(): void {

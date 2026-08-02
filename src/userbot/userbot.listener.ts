@@ -11,6 +11,7 @@ import {
   isDriverChatId,
   normalizeTelegramChatUsername,
   registerResolvedPassengerChat,
+  SOURCE_REGIONS,
   type SourceRegion
 } from "../config/env.js";
 import { prisma } from "../prisma/client.js";
@@ -34,9 +35,14 @@ import {
   type UnifiedMessageActions
 } from "../services/lead.service.js";
 import { sendDriverLeadViaBotBridge } from "../services/driverDelivery.service.js";
-import { isAdminIdentity } from "../services/admin.service.js";
+import { isAdminIdentity, isSuperAdminIdentity } from "../services/admin.service.js";
 import { writeError, writeInfo, writeWarn } from "../services/logger.service.js";
-import { addPassengerSourceChat } from "../services/runtimeConfig.service.js";
+import {
+  addPassengerSourceChat,
+  parseSourceRegionInput,
+  setRegionalRuntimeBooleanSetting,
+  type RuntimeBooleanSetting
+} from "../services/runtimeConfig.service.js";
 import { sendTelegramBotMessage } from "../services/telegramBotApi.service.js";
 import { shouldBlockPassengerGroupWrite } from "../utils/passengerGroupWrite.js";
 
@@ -64,7 +70,7 @@ interface CachedTelegramIdentity {
 
 const KAMSAMOL_SOURCE_USERNAME = "KamsamoltaksiN1";
 const ADMIN_COMMAND_HELP_TEXT =
-  "Mavjud buyruqlar: .help, .status, .stats, .test <matn>, .sources, .source_probe, .pause, .resume, .last <son>, .keywords <tur>, .keyword_count, .add_keyword <tur> <gap> <kuch>, .reload_keywords";
+  "Mavjud buyruqlar: .help, .status, .stats, .sources, .set_del_source <region|all> <on|off|default>, .set_del_ignored <region|all> <on|off|default>, .set_auto_replies <region|all> <on|off|default>, .set_private_ack <region|all> <on|off|default>, .pause, .resume, .test <matn>, .last <son>, .keywords <tur>, .keyword_count, .add_keyword <tur> <gap> <kuch>, .reload_keywords";
 const KAMSAMOL_SOURCE_USERNAMES = [KAMSAMOL_SOURCE_USERNAME, "kamsamolikmiz"];
 const KAMSAMOL_SOURCE_ALIASES = ["kamsamol", "komsamol", "komsomol", "komosol", "камсамол", "комсомол"];
 
@@ -709,7 +715,7 @@ async function handleAdminCommand(
     identity.username = senderUsername;
   }
 
-  if (!(await isAdminIdentity(identity))) {
+  if (!(await isSuperAdminIdentity(identity))) {
     return false;
   }
 
@@ -946,6 +952,50 @@ async function handleAdminCommand(
     );
 
     await reply( lines.join("\n"));
+    return true;
+  }
+
+  // .set_del_source <region|all> <on|off|default>
+  if (command === ".set_del_source" || command === ".set_del_ignored" || command === ".set_auto_replies" || command === ".set_private_ack") {
+    const settingMap: Record<string, RuntimeBooleanSetting> = {
+      ".set_del_source": "DELETE_SOURCE_MESSAGE_IF_ADMIN",
+      ".set_del_ignored": "DELETE_IGNORED_MESSAGE_IF_ADMIN",
+      ".set_auto_replies": "PASSENGER_GROUP_AUTO_REPLIES",
+      ".set_private_ack": "SEND_PRIVATE_ACK_TO_PASSENGER"
+    };
+    const setting = settingMap[command] as RuntimeBooleanSetting;
+    const parts = arg.split(/\s+/);
+    const rawRegion = parts[0] ?? "";
+    const rawValue = parts[1] ?? "";
+
+    if (!rawRegion || !rawValue) {
+      await reply(`Foydalanish: ${command} <region|all> <on|off|default>\nRegionlar: TASHKENT, GULISTON, KOMSOMOL, ANDIJON, all`);
+      return true;
+    }
+
+    const valueMap: Record<string, boolean | null> = { on: true, off: false, default: null };
+    if (!(rawValue.toLowerCase() in valueMap)) {
+      await reply("Qiymat: on | off | default");
+      return true;
+    }
+    const value = valueMap[rawValue.toLowerCase()] as boolean | null;
+
+    if (rawRegion.toLowerCase() === "all") {
+      for (const reg of SOURCE_REGIONS) {
+        await setRegionalRuntimeBooleanSetting(reg, setting, value);
+      }
+      await reply(`${setting} barcha regionlar uchun ${rawValue} ga o'rnatildi.`);
+      return true;
+    }
+
+    const region = parseSourceRegionInput(rawRegion);
+    if (!region) {
+      await reply(`Noma'lum region: ${rawRegion}. To'g'rilari: TASHKENT, GULISTON, KOMSOMOL, ANDIJON, all`);
+      return true;
+    }
+
+    await setRegionalRuntimeBooleanSetting(region, setting, value);
+    await reply(`${setting} [${region}] uchun ${rawValue} ga o'rnatildi.`);
     return true;
   }
 

@@ -260,6 +260,19 @@ export async function isAdminIdentity(identity: AdminIdentityInput): Promise<boo
   return true;
 }
 
+export async function isSuperAdminIdentity(identity: AdminIdentityInput): Promise<boolean> {
+  const normalized = normalizeAdminIdentity(identity);
+  if (!normalized) {
+    return false;
+  }
+
+  const admin = await prisma.adminUser.findFirst({
+    where: buildIdentityWhere(normalized, false)
+  });
+
+  return admin?.role === AdminRole.SUPERADMIN;
+}
+
 export async function hasActiveAdmin(): Promise<boolean> {
   const count = await prisma.adminUser.count({
     where: { isActive: true }

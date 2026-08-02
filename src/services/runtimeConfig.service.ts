@@ -28,9 +28,25 @@ const RUNTIME_CONFIG_KEYS = [
   "DRIVER_CHAT_ID_KOMSOMOL",
   "DRIVER_CHAT_ID_ANDIJON",
   "PASSENGER_GROUP_AUTO_REPLIES",
+  "PASSENGER_GROUP_AUTO_REPLIES_TASHKENT",
+  "PASSENGER_GROUP_AUTO_REPLIES_GULISTON",
+  "PASSENGER_GROUP_AUTO_REPLIES_KOMSOMOL",
+  "PASSENGER_GROUP_AUTO_REPLIES_ANDIJON",
   "SEND_PRIVATE_ACK_TO_PASSENGER",
+  "SEND_PRIVATE_ACK_TO_PASSENGER_TASHKENT",
+  "SEND_PRIVATE_ACK_TO_PASSENGER_GULISTON",
+  "SEND_PRIVATE_ACK_TO_PASSENGER_KOMSOMOL",
+  "SEND_PRIVATE_ACK_TO_PASSENGER_ANDIJON",
   "DELETE_SOURCE_MESSAGE_IF_ADMIN",
+  "DELETE_SOURCE_MESSAGE_IF_ADMIN_TASHKENT",
+  "DELETE_SOURCE_MESSAGE_IF_ADMIN_GULISTON",
+  "DELETE_SOURCE_MESSAGE_IF_ADMIN_KOMSOMOL",
+  "DELETE_SOURCE_MESSAGE_IF_ADMIN_ANDIJON",
   "DELETE_IGNORED_MESSAGE_IF_ADMIN",
+  "DELETE_IGNORED_MESSAGE_IF_ADMIN_TASHKENT",
+  "DELETE_IGNORED_MESSAGE_IF_ADMIN_GULISTON",
+  "DELETE_IGNORED_MESSAGE_IF_ADMIN_KOMSOMOL",
+  "DELETE_IGNORED_MESSAGE_IF_ADMIN_ANDIJON",
   "SEND_DRIVER_AD_WARNINGS",
   "USERBOT_READ_ONLY"
 ] as const;
@@ -225,6 +241,34 @@ function applyRuntimeConfigValue(key: string, value: string): void {
     return;
   }
 
+  const delSourceMatch = key.match(/^DELETE_SOURCE_MESSAGE_IF_ADMIN_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
+  if (delSourceMatch) {
+    const parsed = parseBooleanValue(value);
+    env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[delSourceMatch] = parsed;
+    return;
+  }
+
+  const delIgnoredMatch = key.match(/^DELETE_IGNORED_MESSAGE_IF_ADMIN_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
+  if (delIgnoredMatch) {
+    const parsed = parseBooleanValue(value);
+    env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[delIgnoredMatch] = parsed;
+    return;
+  }
+
+  const autoReplyMatch = key.match(/^PASSENGER_GROUP_AUTO_REPLIES_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
+  if (autoReplyMatch) {
+    const parsed = parseBooleanValue(value);
+    env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[autoReplyMatch] = parsed;
+    return;
+  }
+
+  const privateAckMatch = key.match(/^SEND_PRIVATE_ACK_TO_PASSENGER_(TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u)?.[1] as SourceRegion | undefined;
+  if (privateAckMatch) {
+    const parsed = parseBooleanValue(value);
+    env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[privateAckMatch] = parsed;
+    return;
+  }
+
   if (
     key === "PASSENGER_GROUP_AUTO_REPLIES" ||
     key === "SEND_PRIVATE_ACK_TO_PASSENGER" ||
@@ -257,10 +301,27 @@ function getRuntimeConfigSnapshot(): Record<string, string> {
     SOURCE_REGIONS.map((item) => [getDriverRegionalEnvKey(item), env.DRIVER_CHAT_ID_BY_REGION[item] === null ? "" : String(env.DRIVER_CHAT_ID_BY_REGION[item])])
   );
 
+  const regionalDelSourceUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [`DELETE_SOURCE_MESSAGE_IF_ADMIN_${item}`, env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[item] === null ? "" : String(env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[item])])
+  );
+  const regionalDelIgnoredUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [`DELETE_IGNORED_MESSAGE_IF_ADMIN_${item}`, env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[item] === null ? "" : String(env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[item])])
+  );
+  const regionalAutoReplyUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [`PASSENGER_GROUP_AUTO_REPLIES_${item}`, env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[item] === null ? "" : String(env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[item])])
+  );
+  const regionalPrivateAckUpdates = Object.fromEntries(
+    SOURCE_REGIONS.map((item) => [`SEND_PRIVATE_ACK_TO_PASSENGER_${item}`, env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[item] === null ? "" : String(env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[item])])
+  );
+
   return {
     ...passengerRegionalUpdates,
     ...passengerUsernameRegionalUpdates,
     ...driverRegionalUpdates,
+    ...regionalDelSourceUpdates,
+    ...regionalDelIgnoredUpdates,
+    ...regionalAutoReplyUpdates,
+    ...regionalPrivateAckUpdates,
     SOURCE_CHAT_IDS: formatChatIdList(env.PASSENGER_CHAT_IDS),
     PASSENGER_CHAT_IDS: formatChatIdList(env.PASSENGER_CHAT_IDS),
     PASSENGER_CHAT_USERNAMES: formatStringList(env.PASSENGER_CHAT_USERNAMES),
@@ -474,6 +535,35 @@ export async function setDriverChat(region: SourceRegion, chatId: number): Promi
   });
 }
 
+export async function setRegionalRuntimeBooleanSetting(
+  region: SourceRegion,
+  setting: RuntimeBooleanSetting,
+  value: boolean | null
+): Promise<void> {
+  const envKey = `${setting}_${region}` as const;
+  if (setting === "DELETE_SOURCE_MESSAGE_IF_ADMIN") {
+    env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[region] = value;
+  } else if (setting === "DELETE_IGNORED_MESSAGE_IF_ADMIN") {
+    env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[region] = value;
+  } else if (setting === "PASSENGER_GROUP_AUTO_REPLIES") {
+    env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[region] = value;
+  } else if (setting === "SEND_PRIVATE_ACK_TO_PASSENGER") {
+    env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[region] = value;
+  }
+
+  await updateEnvFile({
+    [envKey]: value === null ? "" : String(value)
+  });
+}
+
+function formatRegionalBoolean(map: Record<SourceRegion, boolean | null>, fallback: boolean): string {
+  return SOURCE_REGIONS.map((r) => {
+    const val = map[r];
+    const display = val === null ? `[Default: ${formatOnOff(fallback)}]` : formatOnOff(val);
+    return `${r}: ${display}`;
+  }).join(", ");
+}
+
 export function getRuntimeConfigText(adminSummary = "-"): string {
   return [
     "🚕 Taxi bot boshqaruv paneli",
@@ -481,9 +571,13 @@ export function getRuntimeConfigText(adminSummary = "-"): string {
     `🔒 Userbot yozmasin: ${formatOnOff(env.USERBOT_READ_ONLY)}`,
     `🚖 Haydovchi guruhiga yuborish: ${env.DRIVER_DELIVERY_MODE}`,
     `💬 Yo'lovchi guruhiga javob: ${formatOnOff(env.PASSENGER_GROUP_AUTO_REPLIES)}`,
+    `   └ Regional: ${formatRegionalBoolean(env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION, env.PASSENGER_GROUP_AUTO_REPLIES)}`,
     `📩 Mijozga lichka: ${formatOnOff(env.SEND_PRIVATE_ACK_TO_PASSENGER)}`,
+    `   └ Regional: ${formatRegionalBoolean(env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION, env.SEND_PRIVATE_ACK_TO_PASSENGER)}`,
     `🗑 Topilgan xabarni o'chirish: ${formatOnOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`,
+    `   └ Regional: ${formatRegionalBoolean(env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION, env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`,
     `🧹 Keraksiz xabarni o'chirish: ${formatOnOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`,
+    `   └ Regional: ${formatRegionalBoolean(env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION, env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`,
     "",
     "💾 Guruh/kanal sozlamalari .env faylga ham, DBga ham saqlanadi.",
     `👮 Adminlar DB: ${adminSummary}`,

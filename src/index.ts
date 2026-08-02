@@ -110,7 +110,7 @@ export async function startTokenBotLayer(): Promise<Bot<Context> | null> {
           username: me.username,
           id: me.id
         });
-        resolveStarted();
+        resolveStarted(); 
       }
     });
 

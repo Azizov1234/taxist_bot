@@ -20,6 +20,7 @@ import {
   parseSourceRegionInput,
   parseTelegramChatIdInput,
   setDriverChat,
+  setRegionalRuntimeBooleanSetting,
   toggleRuntimeBooleanSetting,
   type PassengerSourceAddResult,
   type RuntimeBooleanSetting
@@ -98,6 +99,39 @@ function groupKeywordsByType(items: Awaited<ReturnType<typeof listActiveKeywords
   return `${text.slice(0, 3900)}...`;
 }
 
+function getRegionalSettingValue(setting: RuntimeBooleanSetting, region: SourceRegion): boolean | null {
+  if (setting === "DELETE_SOURCE_MESSAGE_IF_ADMIN") {
+    return env.DELETE_SOURCE_MESSAGE_IF_ADMIN_BY_REGION[region];
+  }
+  if (setting === "DELETE_IGNORED_MESSAGE_IF_ADMIN") {
+    return env.DELETE_IGNORED_MESSAGE_IF_ADMIN_BY_REGION[region];
+  }
+  if (setting === "PASSENGER_GROUP_AUTO_REPLIES") {
+    return env.PASSENGER_GROUP_AUTO_REPLIES_BY_REGION[region];
+  }
+  return env.SEND_PRIVATE_ACK_TO_PASSENGER_BY_REGION[region];
+}
+
+function getGlobalSettingValue(setting: RuntimeBooleanSetting): boolean {
+  if (setting === "DELETE_SOURCE_MESSAGE_IF_ADMIN") {
+    return env.DELETE_SOURCE_MESSAGE_IF_ADMIN;
+  }
+  if (setting === "DELETE_IGNORED_MESSAGE_IF_ADMIN") {
+    return env.DELETE_IGNORED_MESSAGE_IF_ADMIN;
+  }
+  if (setting === "PASSENGER_GROUP_AUTO_REPLIES") {
+    return env.PASSENGER_GROUP_AUTO_REPLIES;
+  }
+  return env.SEND_PRIVATE_ACK_TO_PASSENGER;
+}
+
+function formatValueBadge(value: boolean | null, globalValue: boolean): string {
+  if (value === null) {
+    return `[Default: ${onOff(globalValue)}]`;
+  }
+  return onOff(value);
+}
+
 function buildAdminPanelKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("➕ Yo'lovchi guruhi", "admin:add_passenger")
@@ -106,19 +140,52 @@ function buildAdminPanelKeyboard(): InlineKeyboard {
     .text("👮 Admin qo'shish", "admin:add_admin")
     .text("🚫 Admin o'chirish", "admin:remove_admin")
     .row()
-    .text(`💬 ${TOGGLE_LABELS.PASSENGER_GROUP_AUTO_REPLIES}: ${onOff(env.PASSENGER_GROUP_AUTO_REPLIES)}`, "admin:toggle:PASSENGER_GROUP_AUTO_REPLIES")
+    .text(`💬 ${TOGGLE_LABELS.PASSENGER_GROUP_AUTO_REPLIES}: ${onOff(env.PASSENGER_GROUP_AUTO_REPLIES)} ⚙️`, "admin:menu_toggle:PASSENGER_GROUP_AUTO_REPLIES")
     .row()
-    .text(`📩 ${TOGGLE_LABELS.SEND_PRIVATE_ACK_TO_PASSENGER}: ${onOff(env.SEND_PRIVATE_ACK_TO_PASSENGER)}`, "admin:toggle:SEND_PRIVATE_ACK_TO_PASSENGER")
+    .text(`📩 ${TOGGLE_LABELS.SEND_PRIVATE_ACK_TO_PASSENGER}: ${onOff(env.SEND_PRIVATE_ACK_TO_PASSENGER)} ⚙️`, "admin:menu_toggle:SEND_PRIVATE_ACK_TO_PASSENGER")
     .row()
     .text("📚 Gap/so'z qo'shish", "admin:add_keyword")
     .text("📊 Statistika", "admin:stats")
     .row()
-    .text(`🗑 ${TOGGLE_LABELS.DELETE_SOURCE_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)}`, "admin:toggle:DELETE_SOURCE_MESSAGE_IF_ADMIN")
+    .text(`🗑 ${TOGGLE_LABELS.DELETE_SOURCE_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_SOURCE_MESSAGE_IF_ADMIN)} ⚙️`, "admin:menu_toggle:DELETE_SOURCE_MESSAGE_IF_ADMIN")
     .row()
-    .text(`🧹 ${TOGGLE_LABELS.DELETE_IGNORED_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)}`, "admin:toggle:DELETE_IGNORED_MESSAGE_IF_ADMIN")
+    .text(`🧹 ${TOGGLE_LABELS.DELETE_IGNORED_MESSAGE_IF_ADMIN}: ${onOff(env.DELETE_IGNORED_MESSAGE_IF_ADMIN)} ⚙️`, "admin:menu_toggle:DELETE_IGNORED_MESSAGE_IF_ADMIN")
     .row()
     .text("📋 Ro'yxat", "admin:panel")
     .text("❌ Bekor qilish", "admin:cancel");
+}
+
+function buildToggleSubmenuKeyboard(setting: RuntimeBooleanSetting): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const globalVal = getGlobalSettingValue(setting);
+
+  keyboard.text(`🌐 Global (barchasi): ${onOff(globalVal)}`, `admin:set_toggle:${setting}:GLOBAL`).row();
+
+  for (const region of SOURCE_REGIONS) {
+    const regVal = getRegionalSettingValue(setting, region);
+    const badge = formatValueBadge(regVal, globalVal);
+    keyboard.text(`📍 ${REGION_LABELS[region]}: ${badge}`, `admin:set_toggle:${setting}:${region}`).row();
+  }
+
+  keyboard.text("⬅️ Orqaga", "admin:panel");
+  return keyboard;
+}
+
+function formatToggleSubmenuText(setting: RuntimeBooleanSetting): string {
+  const globalVal = getGlobalSettingValue(setting);
+  const lines = [
+    `⚙️ ${TOGGLE_LABELS[setting]} sozlamalari:`,
+    "",
+    `🌐 Global default: ${onOff(globalVal)}`,
+    ...SOURCE_REGIONS.map((r) => {
+      const regVal = getRegionalSettingValue(setting, r);
+      const badge = formatValueBadge(regVal, globalVal);
+      return `📍 ${REGION_LABELS[r]}: ${badge}`;
+    }),
+    "",
+    "💡 Tugmani bossangiz holat o'zgaradi:\nYONIQ ➡️ O'CHIQ ➡️ DEFAULT ➡️ YONIQ"
+  ];
+  return lines.join("\n");
 }
 
 function buildRegionKeyboard(prefix: "admin:add_passenger_region" | "admin:set_driver_region" | "admin:add_keyword_region"): InlineKeyboard {
@@ -692,6 +759,39 @@ export function registerAdminCommands(bot: Bot<Context>): void {
     if (data === "admin:add_keyword") {
       await ctx.editMessageText("Qaysi yo'nalish uchun gap/so'z qo'shamiz?", {
         reply_markup: buildRegionKeyboard("admin:add_keyword_region")
+      });
+      return;
+    }
+
+    const menuToggleMatch = data.match(/^admin:menu_toggle:([A-Z0-9_]+)$/u);
+    const menuToggleKey = menuToggleMatch?.[1] as RuntimeBooleanSetting | undefined;
+    if (menuToggleKey && TOGGLE_SETTINGS.includes(menuToggleKey)) {
+      await ctx.editMessageText(formatToggleSubmenuText(menuToggleKey), {
+        reply_markup: buildToggleSubmenuKeyboard(menuToggleKey)
+      });
+      return;
+    }
+
+    const setToggleMatch = data.match(/^admin:set_toggle:([A-Z0-9_]+):(GLOBAL|TASHKENT|GULISTON|KOMSOMOL|ANDIJON)$/u);
+    if (setToggleMatch) {
+      const setting = setToggleMatch[1] as RuntimeBooleanSetting;
+      const target = setToggleMatch[2] as "GLOBAL" | SourceRegion;
+
+      let toastText = "";
+      if (target === "GLOBAL") {
+        const nextGlobal = await toggleRuntimeBooleanSetting(setting);
+        toastText = `Global ${TOGGLE_LABELS[setting]}: ${onOff(nextGlobal)}`;
+      } else {
+        const currentVal = getRegionalSettingValue(setting, target);
+        const nextVal = currentVal === true ? false : currentVal === false ? null : true;
+        await setRegionalRuntimeBooleanSetting(target, setting, nextVal);
+        const valText = nextVal === null ? "default (global)" : onOff(nextVal);
+        toastText = `${REGION_LABELS[target]} (${TOGGLE_LABELS[setting]}): ${valText}`;
+      }
+
+      await ctx.answerCallbackQuery(toastText).catch(() => undefined);
+      await ctx.editMessageText(formatToggleSubmenuText(setting), {
+        reply_markup: buildToggleSubmenuKeyboard(setting)
       });
       return;
     }
