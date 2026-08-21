@@ -37,7 +37,7 @@ async function seedRuntimeConfigs(): Promise<void> {
     PASSENGER_CHAT_USERNAMES: e.PASSENGER_CHAT_USERNAMES || "",
     PASSENGER_CHAT_USERNAMES_TASHKENT:
       e.PASSENGER_CHAT_USERNAMES_TASHKENT ||
-      "guliston_bekabod_xovos_yangiyer,SHIRIN_N1_TOSHKENT,bekobod_chirchiqdagibekobodlilar,ToshkentBekobod_Shirin,navoiy777galaba",
+      "guliston_bekabod_xovos_yangiyer,SHIRIN_N1_TOSHKENT,bekobod_chirchiqdagibekobodlilar,ToshkentBekobod_Shirin,navoiy777galaba,Toshkent_bek_zafar_taksi",
     PASSENGER_CHAT_USERNAMES_GULISTON:
       e.PASSENGER_CHAT_USERNAMES_GULISTON ||
       "Bekobod_Shirin_Guliston_taxi,ShirinTaksi,Guliston_Bekobod_taksi,guliston_bekabod_xovos",
