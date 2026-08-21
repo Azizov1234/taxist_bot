@@ -35,7 +35,9 @@ async function seedRuntimeConfigs(): Promise<void> {
 
     // === PASSENGER CHAT USERNAMES (region bo'yicha) ===
     PASSENGER_CHAT_USERNAMES: e.PASSENGER_CHAT_USERNAMES || "",
-    PASSENGER_CHAT_USERNAMES_TASHKENT: e.PASSENGER_CHAT_USERNAMES_TASHKENT || "",
+    PASSENGER_CHAT_USERNAMES_TASHKENT:
+      e.PASSENGER_CHAT_USERNAMES_TASHKENT ||
+      "guliston_bekabod_xovos_yangiyer,SHIRIN_N1_TOSHKENT,bekobod_chirchiqdagibekobodlilar,ToshkentBekobod_Shirin,navoiy777galaba",
     PASSENGER_CHAT_USERNAMES_GULISTON:
       e.PASSENGER_CHAT_USERNAMES_GULISTON ||
       "Bekobod_Shirin_Guliston_taxi,ShirinTaksi,Guliston_Bekobod_taksi,guliston_bekabod_xovos",
@@ -44,7 +46,7 @@ async function seedRuntimeConfigs(): Promise<void> {
 
     // === DRIVER CHAT IDs (region bo'yicha) ===
     DRIVER_CHAT_ID: e.DRIVER_CHAT_ID || "-1004453401746",
-    DRIVER_CHAT_ID_TASHKENT: e.DRIVER_CHAT_ID_TASHKENT || "-1004297043109",
+    DRIVER_CHAT_ID_TASHKENT: e.DRIVER_CHAT_ID_TASHKENT || "-1004447414662",
     DRIVER_CHAT_ID_GULISTON: e.DRIVER_CHAT_ID_GULISTON || "-1004453401746",
     DRIVER_CHAT_ID_KOMSOMOL: e.DRIVER_CHAT_ID_KOMSOMOL || "-1003872057304",
     DRIVER_CHAT_ID_ANDIJON: e.DRIVER_CHAT_ID_ANDIJON || "-1003740829119",
