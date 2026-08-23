@@ -1,0 +1,505 @@
+﻿================================================================================
+TEXNIK TOPSHIRIQ (TZ) — YANGI LOYIHANI BOSHIDAN QURISH
+Loyiha: Telegram Taksi Lead Bot
+Sana: 2026-08-19
+================================================================================
+
+
+================================================================================
+LOYIHA NIMA QILADI (MAQSAD)
+================================================================================
+
+Telegram guruhlarida odamlar "taksi kerak, Toshkentdan Guliston" deb
+yozadi. Shu xabarlarni bot avtomatik ko'rib, haqiqiy so'rovni ajratib,
+haydovchilar guruhiga/kanaliga yuboradi.
+
+Muammo:
+  - Yo'lovchi guruhda 500+ xabar/kun keladi
+  - Ularning 80% keraksiz: reklama, haydovchi o'z tavsifi, spam
+  - Haydovchilar hamma xabarni ko'rib o'tirishi vaqt oladi
+
+Yechim:
+  - Bot/userbot yo'lovchi guruhini kuzatadi
+  - Har xabarni tahlil qiladi (rule-based + AI)
+  - Faqat haqiqiy "taksi kerak" xabarlarni haydovchi guruhiga yuboradi
+  - Keraksiz xabarlarni guruhdan o'chiradi (admin bo'lsa)
+
+
+================================================================================
+QO'SHNI TEXNOLOGIYALAR — TIL VA KUTUBXONALAR
+================================================================================
+
+DASTURLASH TILI:
+  TypeScript (Node.js ustida)
+  Sabab:
+    - Kuchli tip tizimi — xatolarni compile paytida ushlaydi
+    - Async/await — Telegram API bilan qulay ishlash
+    - Katta ekotizim (npm)
+    - Production uchun JavaScript ga compile qilinadi
+
+NODE.JS VERSIYA:
+  18+ (LTS)
+  Sabab: Native fetch, ESM support, barqaror
+
+MODUL TIZIMI:
+  ESM (type: "module" — package.json da)
+  Sabab: Zamonaviy, tree-shaking, native import/export
+
+
+================================================================================
+KUTUBXONALAR VA ULARNING VAZIFASI
+================================================================================
+
+1. TELEGRAM USERBOT — "telegram" (GramJS)
+   npm install telegram
+   Nima qiladi:
+     - Haqiqiy Telegram akkaunti bilan ulanadi (MTProto protokoli)
+     - Guruhlarni tinglaydi (oddiy bot kirmaydigan private guruhlarga ham kiradi)
+     - Xabarlarni o'chiradi
+     - Lichkaga xabar yuboradi
+   Qachon kerak:
+     - Bot guruhda admin bo'lmasa lekin akkaunt admin bo'lsa
+     - Private/close guruhlarda ishlash kerak bo'lsa
+
+2. TELEGRAM BOT — "grammy"
+   npm install grammy
+   Nima qiladi:
+     - Oddiy Telegram bot token bilan ishlaydi
+     - Admin buyruqlarini qabul qiladi (/status, /pause ...)
+     - Haydovchi kanaliga xabar yuboradi (bot nomidan)
+   Qachon kerak:
+     - Driver kanalga rasmiy bot nomidan post kerak bo'lganda
+     - Admin buyruqlar interfeysini qurishda
+
+3. MA'LUMOTLAR BAZASI ORM — "@prisma/client" + "prisma"
+   npm install @prisma/client
+   npm install -D prisma
+   Nima qiladi:
+     - PostgreSQL bilan ishlash
+     - Avtomatik type generation
+     - Migration boshqaruvi
+     - Xabarlarni, keywordlarni, adminlarni, loglarni DB ga yozish
+
+4. ENV VALIDATSIYA — "zod"
+   npm install zod
+   Nima qiladi:
+     - .env faylini o'qib, barcha qiymatlarni tekshiradi
+     - Xato bo'lsa aniq xabar beradi: "TELEGRAM_API_ID is required"
+     - Type-safe env — kodda env.TELEGRAM_API_ID string ekanligi kafolatlangan
+
+5. ENV YUKLASH — "dotenv"
+   npm install dotenv
+   Nima qiladi:
+     - .env faylini process.env ga yuklaydi
+
+6. LOGGER — "pino" + "pino-pretty"
+   npm install pino
+   npm install -D pino-pretty
+   Nima qiladi:
+     - JSON format loglar (production uchun)
+     - Tezkor, async logger
+     - pino-pretty: development da chiroyli ko'rinish
+
+
+================================================================================
+DEVELOPMENT KUTUBXONALARI (devDependencies)
+================================================================================
+
+  typescript         — TypeScript compiler
+  @types/node        — Node.js type definitions
+  tsx                — TypeScript fayllarni to'g'ridan-to'g'ri ishga tushirish (dev)
+  prisma             — Prisma CLI (migrate, generate, seed)
+  pino-pretty        — Logger development ko'rinishi
+
+
+================================================================================
+MA'LUMOTLAR BAZASI — POSTGRESQL
+================================================================================
+
+Nima saqlash kerak (jadvallar):
+
+1. Lead (yo'lovchi so'rovlari):
+   - sourceMessageId    : Telegram guruhda xabar ID
+   - sourceChatId       : Qaysi guruhdan keldi
+   - senderId/fullName  : Kim yozdi
+   - originalText       : Asl xabar
+   - normalizedText     : Normalize qilingan xabar
+   - fromLocation       : Qayerdan (Toshkent)
+   - toLocation         : Qayerga (Guliston)
+   - phone              : Telefon raqam (agar bo'lsa)
+   - status             : NEW / SENT / IGNORED / DUPLICATE / ERROR
+   - driverMessageId    : Haydovchi guruhida yuborilgan xabar ID
+   - createdAt          : Qachon
+
+2. KeywordDictionary (kalit so'zlar lug'ati):
+   - phrase             : "taksi kerak"
+   - normalized         : "taksi kera" (normalize qilingan)
+   - category           : PASSENGER / DRIVER / CARGO / SPAM / AMBIGUOUS
+   - weight             : Og'irlik (1-10)
+   - matchType          : EXACT / PHRASE / REGEX
+
+3. AdminUser (adminlar):
+   - telegramId         : Telegram ID
+   - username           : @username
+   - role               : SUPERADMIN / ADMIN
+
+4. RuntimeConfig (dinamik sozlamalar, key-value):
+   - Guruh qo'shish, o'chirish sozlamalari
+   - on/off kalitlari
+
+5. BotLog (tizim loglari):
+   - level              : INFO / WARN / ERROR
+   - message            : Log matni
+   - meta               : JSON qo'shimcha
+
+
+================================================================================
+LOYIHA TUZILMASI (FAYL STRUKTURASI)
+================================================================================
+
+  taksi-bot/
+  |-- src/
+  |   |-- main.ts                   Kirish nuqtasi — ishga tushirish
+  |   |-- config/
+  |   |   |-- env.ts                .env o'qish va Zod validatsiya
+  |   |   -- keywords.ts          Boshlang'ich keyword to'plamlari
+  |   |-- prisma/
+  |   |   -- client.ts            Prisma singleton
+  |   |-- services/
+  |   |   |-- lead.service.ts       Xabar qayta ishlash — ASOSIY LOGIKA
+  |   |   |-- classifier.service.ts Rule-based + AI klassifikator
+  |   |   |-- keyword.service.ts    Keyword lug'at boshqaruvi
+  |   |   |-- admin.service.ts      Admin foydalanuvchilar
+  |   |   |-- config.service.ts     RuntimeConfig DB boshqaruvi
+  |   |   |-- delivery.service.ts   Driver kanalga xabar yuborish
+  |   |   -- logger.service.ts     Logger wrapper
+  |   |-- bot/
+  |   |   |-- index.ts              grammY bot yaratish
+  |   |   -- admin.commands.ts     Admin buyruqlari (/status, /pause ...)
+  |   |-- userbot/
+  |   |   |-- client.ts             GramJS ulanish
+  |   |   -- listener.ts          Guruh xabarlarini tinglash
+  |   -- utils/
+  |       |-- text.ts               Matn normalize, spam aniqlash
+  |       |-- route.ts              Yo'nalish aniqlash (from/to)
+  |       -- phone.ts              Telefon raqam ajratish
+  |-- prisma/
+  |   |-- schema.prisma             DB schema
+  |   -- seed.ts                  Boshlang'ich ma'lumotlar
+  |-- .env.example                  ENV namunasi
+  |-- .env                          Haqiqiy ENV (gitignore da)
+  |-- .gitignore
+  |-- package.json
+  -- tsconfig.json
+
+
+================================================================================
+ASOSIY JARAYON — NIMA YOZILISHI KERAK
+================================================================================
+
+BOSQICH 1: SOZLASH (config)
+  Yozish kerak:
+    - .env.example — barcha ENV o'zgaruvchilar namunasi
+    - src/config/env.ts — Zod bilan .env ni o'qish va validatsiya
+    - tsconfig.json — TypeScript sozlamalari
+    - package.json — skriptlar (dev, build, start, migrate...)
+
+BOSQICH 2: MA'LUMOTLAR BAZASI (prisma)
+  Yozish kerak:
+    - prisma/schema.prisma — Lead, Keyword, Admin, RuntimeConfig, BotLog
+    - src/prisma/client.ts — singleton Prisma client
+    - prisma/seed.ts — boshlang'ich keyword va admin ma'lumotlar
+
+BOSQICH 3: USERBOT (GramJS)
+  Yozish kerak:
+    - src/userbot/client.ts
+        * my.telegram.org API ID/HASH bilan ulanish
+        * Birinchi marta: telefon, kod, 2FA so'rash
+        * Session ni fayl/DB ga saqlash
+        * Qayta ulanishda session dan foydalanish
+        * Reconnect: avtomatik qayta ulanish
+    - src/userbot/listener.ts
+        * PASSENGER_CHAT_IDS guruhlarini tinglash
+        * Har yangi xabar uchun lead.service ga yuborish
+
+BOSQICH 4: KLASSIFIKATSIYA (classifier)
+  Yozish kerak:
+    - src/utils/text.ts
+        * normalizeUzbekText() — lotin/kirill bir xil ko'rinishga keltirish
+        * hasSpamSignals() — oddiy spam belgilarini aniqlash
+    - src/utils/route.ts
+        * detectRoute() — "Toshkentdan Guliston" => {from, to}
+    - src/utils/phone.ts
+        * extractPhone() — matndan telefon raqam olish
+    - src/services/keyword.service.ts
+        * DB dagi keywordlar keshini xotiraga yuklash
+        * Weighted scoring: PASSENGER vs DRIVER vs CARGO vs SPAM
+    - src/services/classifier.service.ts
+        * classifyMessage() — asosiy klassifikatsiya funksiyasi
+        * Rule-based: keyword + regex
+        * AI: faqat AMBIGUOUS holatda (OpenAI/Gemini/Groq)
+        * AI xato bersa rule-based natijaga qaytish
+
+BOSQICH 5: LEAD QAYTA ISHLASH (lead.service)
+  Yozish kerak:
+    - processIncomingMessage() — asosiy pipeline:
+        1. Text bormi? skip
+        2. Duplicate? skip
+        3. Normalize
+        4. Classify
+        5. PASSENGER bo'lsa driver guruhga yuborish
+        6. Source xabarni o'chirish (ruxsat bo'lsa)
+        7. Yo'lovchiga lichka tasdiq (ixtiyoriy)
+        8. DB ga yozish
+
+BOSQICH 6: HAYDOVCHI KANALIGA YUBORISH (delivery.service)
+  Yozish kerak:
+    - sendToDriverChannel()
+        * Bot orqali: Bot API (grammy)
+        * Userbot orqali: GramJS
+        * Auto: token bo'lsa bot, bo'lmasa userbot
+
+BOSQICH 7: ADMIN BOSHQARUV (bot/admin.commands)
+  Yozish kerak:
+    - grammY bot ishga tushirish
+    - Admin buyruqlari:
+        /status   — bot holati
+        /pause    — to'xtatish
+        /resume   — davom ettirish
+        /stats    — statistika
+        /test     — xabarni test qilish
+    - Admin tekshirish middleware — faqat DB dagi adminlar kiradi
+
+BOSQICH 8: LOGGER (logger.service)
+  Yozish kerak:
+    - Pino logger wrapper
+    - writeInfo(), writeWarn(), writeError()
+    - DB ga ham log yozish (BotLog jadvali)
+    - LOG_CHANNEL_ID bo'lsa Telegram kanaliga ham log
+
+BOSQICH 9: ISHGA TUSHIRISH (main.ts)
+  Yozish kerak:
+    - DB ulanish
+    - RuntimeConfig yuklash
+    - Adminlar upsert
+    - Keyword kesh yuklash
+    - GramJS userbot ulanish
+    - Listener ishga tushirish
+    - SIGINT/SIGTERM signal handle (xavfsiz to'xtatish)
+    - Instance lock (bir vaqtda faqat bitta instance)
+
+
+================================================================================
+MUHIT O'ZGARUVCHILARI — .env.example
+================================================================================
+
+# Majburiy
+DATABASE_URL=postgresql://user:pass@localhost:5432/taxibot
+TELEGRAM_API_ID=12345678
+TELEGRAM_API_HASH=abcdef1234567890abcdef1234567890
+TELEGRAM_STRING_SESSION=
+ADMIN_TELEGRAM_ID=123456789
+
+# Yo'lovchi manba guruhlari (region bo'yicha)
+PASSENGER_CHAT_IDS_TASHKENT=-100111222333
+PASSENGER_CHAT_IDS_GULISTON=-100444555666
+PASSENGER_CHAT_IDS_KOMSOMOL=-100777888999
+
+# Haydovchi guruhlari/kanallari
+DRIVER_CHAT_ID_TASHKENT=-100111222334
+DRIVER_CHAT_ID_GULISTON=-100444555667
+DRIVER_CHAT_ID_KOMSOMOL=-100777888990
+
+# Ixtiyoriy
+TELEGRAM_MODE=userbot
+TELEGRAM_BOT_TOKEN=
+DRIVER_DELIVERY_MODE=auto
+AI_ENABLED=false
+AI_PROVIDER_ORDER=openai,gemini,groq
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+GROQ_API_KEY=
+DELETE_SOURCE_MESSAGE_IF_ADMIN=true
+DELETE_IGNORED_MESSAGE_IF_ADMIN=false
+SEND_PRIVATE_ACK_TO_PASSENGER=false
+PASSENGER_GROUP_AUTO_REPLIES=false
+LOG_CHANNEL_ID=
+
+
+================================================================================
+XAVFSIZLIK — MUHIM QOIDALAR
+================================================================================
+
+1. .gitignore da bo'lishi SHART:
+     .env
+     *.session
+     *.log
+
+2. Hech qachon kodga yozilmaydigan narsalar:
+     - API key
+     - Bot token
+     - String session
+     - Database URL
+
+3. Session xavfsizligi:
+     - STRING_SESSION — hech kimga berilmaydi
+     - Bir sessiya faqat bitta joyda ishlatiladi
+     - Oshkor bo'lsa — my.telegram.org da "Terminate session" qilinadi
+
+4. Admin tekshiruvi:
+     - Har admin buyrug'ida DB da tekshiriladi
+     - .env dagi ADMIN_TELEGRAM_ID faqat superadmin
+
+
+================================================================================
+ISHLASH REJIMLARI
+================================================================================
+
+REJIM          TELEGRAM_MODE   TAVSIF
+-----------    -------------   ------------------------------------------
+Userbot only   userbot         Faqat GramJS userbot (default)
+Bot only       bot             Faqat grammY bot (legacy)
+Ikkalasi       both            Userbot tinglaydi, bot driver ga yuboradi
+
+Driver yuborish (DRIVER_DELIVERY_MODE):
+  auto     Token bo'lsa bot, bo'lmasa userbot
+  bot      Faqat bot API (TELEGRAM_BOT_TOKEN kerak)
+  userbot  Faqat GramJS userbot
+
+
+================================================================================
+NPM SKRIPTLAR — package.json da yozilishi kerak
+================================================================================
+
+  "scripts": {
+    "dev":              "tsx src/main.ts",
+    "build":            "tsc",
+    "start":            "node dist/main.js",
+    "get:ids":          "tsx src/userbot/get-ids.ts",
+    "prisma:generate":  "prisma generate",
+    "prisma:migrate":   "prisma migrate dev",
+    "prisma:deploy":    "prisma migrate deploy",
+    "seed":             "tsx prisma/seed.ts"
+  }
+
+
+================================================================================
+BOSHLASH TARTIBI (BIRINCHI MARTA)
+================================================================================
+
+  1. npm install
+  2. PostgreSQL yaratish (database: taxibot)
+  3. .env.example => .env nusxalash va to'ldirish
+     (DATABASE_URL, TELEGRAM_API_ID, TELEGRAM_API_HASH, ADMIN_TELEGRAM_ID)
+  4. npx prisma migrate dev --name init
+  5. npm run seed
+  6. npm run dev
+     => Konsol: "Telefon raqamingizni kiriting:"
+  7. Telefon raqam kiritish: +998901234567
+  8. Telegram kodi kiritish: 12345
+  9. 2FA parol (agar yoqilgan bo'lsa)
+  10. Konsol: "STRING_SESSION: 1Bv...xyz"
+  11. .env ga: TELEGRAM_STRING_SESSION=1Bv...xyz
+  12. npm run get:ids
+      => Barcha dialog: "Taksi Toshkent: -100111222333"
+  13. .env ga PASSENGER_CHAT_IDS_* va DRIVER_CHAT_ID_* yozish
+  14. npm run dev
+      => Bot ishlaydi!
+
+
+================================================================================
+KLASSIFIKATSIYA QOIDALARI (RULE-BASED)
+================================================================================
+
+PASSENGER (yo'lovchi so'rovi) — shu xabar haydovchilarga yuboriladi:
+  Kalit so'zlar:
+    "taksi kerak", "mashina kerak", "taksi topib bering",
+    "boraman", "ketaman", "chiqaman", "joy bormi",
+    "nechi pul", "qancha turadi", "[shahar]dan [shahar]ga"
+
+  Regex misollar:
+    /taksi.{0,10}kerak/i
+    /\d\s*kishi.{0,20}kerak/i
+    /(boraman|ketaman|chiqaman).{0,30}(toshkent|guliston)/i
+
+DRIVER (haydovchi reklamasi) — skip yoki o'chirish:
+  Kalit so'zlar:
+    "olib ketaman", "odam olaman", "yo'lovchi olaman",
+    "mashina bor", "taksi bor", "kuzataman"
+
+  Regex misollar:
+    /\bolib\s*ketaman\b/i
+    /\bodam\s*olaman\b/i
+
+CARGO (pochta/yuk):
+  "pochta bormi", "yuk bor", "jo'natish kerak"
+
+SPAM:
+  "aktsiya", "kredit", "cashback", "bonus",
+  "kanalga obuna", "havola", reklama belgilari
+
+AMBIGUOUS:
+  Hech qaysi kategoriyaga ishonchli kirmasa => AI ga yuboriladi
+
+
+================================================================================
+AI INTEGRATSIYA (IXTIYORIY)
+================================================================================
+
+Qachon ishlatiladi:
+  - Faqat AMBIGUOUS xabarlar uchun
+  - AI_ENABLED=true bo'lganda
+
+Provayderlar (AI_PROVIDER_ORDER tartibida):
+  1. OpenAI (GPT-4o-mini, GPT-4o)
+  2. Google Gemini (gemini-1.5-flash)
+  3. Groq (llama-3.1-8b-instant)
+
+Prompt qismi:
+  - Xabar matni beriladi
+  - Kategoriya so'raladi: PASSENGER / DRIVER / CARGO / SPAM
+  - JSON javob kutiladi: { category, confidence, from, to, phone }
+
+Cooldown tizimi:
+  - Bitta provider xato bersa 5 daqiqa o'chiriladi
+  - Keyingi provayderga o'tiladi
+  - Hammasi o'chsa rule-based natija ishlatiladi
+
+
+================================================================================
+BARQARORLIK SOZLAMALARI
+================================================================================
+
+GramJS sozlamalari:
+  connectionRetries: -1      (cheksiz qayta ulanish)
+  retryDelay: 2000           (2 soniyada qayta urinish)
+  useWSS: true               (443 port, barqarorroq)
+
+Startup backfill:
+  - Restart bo'lganda so'nggi 3 daqiqa xabarlarni qayta tekshirish
+  - Har guruhdan oxirgi 20 xabarni skanerlash
+
+Heartbeat:
+  - Har minutda Telegram ulanishini tekshirish
+  - Xato ko'paysa PM2/systemd restart signal beradi
+
+Instance lock:
+  - Bir vaqtda faqat bitta instance
+  - Lock fayl: /tmp/taxibot.lock
+
+
+================================================================================
+KELAJAKDA QO'SHILISHI MUMKIN
+================================================================================
+
+  - Web admin panel (Next.js yoki Remix)
+  - Ko'proq region qo'shish
+  - Haydovchi javob kuzatuvi
+  - Yo'lovchi reytingi
+  - Statistika dashboard
+  - Telegram Mini App
+  - Ko'proq AI provider
+
+================================================================================
+TZ OXIRI
+================================================================================
